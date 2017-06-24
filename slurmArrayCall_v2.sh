@@ -4,7 +4,7 @@
 #run a pipeline job when submitted with sbatch -a
 
 #The arguments are:
-#1) job type (i.e. iADMD, IR, HC, VCFINSNP, STAR, IRRNA, or MERGE)
+#1) job type (i.e. iADMD, IR, HC, VCFINSNP, STAR, IRRNA, SAMTOOLS, or MERGE)
 #2) metadata file (TSV comprised of prefix, ref, read file(s))
 # 2a) metadata file for MERGE is different: (merged BAM name, component BAM list)
 #3) Optional override of # cores used
@@ -73,6 +73,9 @@ elif [[ $JOBTYPE =~ "VCFINSNP" ]]; then
 elif [[ $JOBTYPE =~ "MERGE" ]]; then
    #Params: MERGED BAMLIST
    CMD="${SCRIPTDIR}/MergeBAMs.sh ${MERGED} ${BAMLIST}"
+elif [[ $JOBTYPE =~ "MPILEUP" ]]; then
+   #Params: PREFIX REF CORES SPECIAL
+   CMD="${SCRIPTDIR}/samtoolsVariantCall.sh ${PREFIX} ${REF}${CORES} ${SPECIAL}"
 else
    echo "Unintelligible job type $JOBTYPE"
    exit 3
