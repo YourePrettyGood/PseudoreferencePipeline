@@ -24,7 +24,7 @@ fi
 # and GATK will convert these quality scores to PHRED+33.
 #Note: DO NOT set this option if you already set MISENCODED in the Indel
 # Realignment step.  Only use this option if you skipped Indel Realignment.
-if [[ $4 =~ "filter_misencoded_quality_scores" ]]; then
+if [[ $4 =~ "misencoded" ]]; then
    echo "Note: Attempting to convert PHRED+64 quality scores to PHRED+33"
    MISENCODED=" --fix_misencoded_quality_scores"
 elif [[	$4 =~ "filter_mismatching_base_and_quals" ]]; then
