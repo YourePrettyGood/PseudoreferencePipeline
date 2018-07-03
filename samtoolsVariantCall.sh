@@ -55,14 +55,14 @@ if [[ -n "${REALIGNED}" ]]; then
    #else
       #noMD IR BAM
    #fi
-   INPUTBAM="${OUTPUTDIR}${SAMPLE}${MARKDUP}${REALIGNED}.bam"
+   INPUTBAM="${OUTPUTDIR}${PREFIX}${MARKDUP}${REALIGNED}.bam"
 else
    #if [[ -n "${MARKDUP}" ]]; then
       #MD noIR BAM
    #else
       #noMD noIR BAM
    #fi
-   INPUTBAM="${OUTPUTDIR}${SAMPLE}_sorted${MARKDUP}.bam"
+   INPUTBAM="${OUTPUTDIR}${PREFIX}_sorted${MARKDUP}.bam"
 fi
 if [[ ! -e "${INPUTBAM}" ]]; then
    echo "Error: Missing input BAM ${INPUTBAM}!"
