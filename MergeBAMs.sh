@@ -21,29 +21,21 @@ fi
 SCRIPTDIR=`dirname $0`
 source ${SCRIPTDIR}/pipeline_environment.sh
 
-#if [[ ! -e ${SAMTOOLS} ]]; then
-#   echo "Samtools not found, please adjust the path in the pipeline_environment script."
-#   echo "pipeline_environment.sh said ${SAMTOOLS}"
-#   exit 6
-#fi
 if [[ ! -e ${PICARD} ]]; then
    echo "Picard not found, please adjust the path in the pipeline_environment script."
    echo "pipeline_environment.sh said ${PICARD}"
    exit 6
 fi
 
-SAMPLEID=${MERGED//_sorted_markdup*bam/} #So we can merge DNA or RNA BAMs
+SAMPLEID=${MERGED%_sorted*bam} #So we can merge DNA or RNA BAMs, with or without markdup
 #Adjust read groups in component BAMs to have the same SM value:
 echo "Adjusting Read Groups to use SM:${SAMPLEID}"
 RGBAMS=()
 for file in $BAMLIST;
    do
    RGBAM=${file//.bam/_adjustedRG.bam}
-   RGID=${file//_sorted_markdup*bam/}
+   RGID=${file%_sorted*bam}
    echo "${file} to ${RGBAM}"
-#   NEWRG="@RG\\tID:${RGID}\\tLB:${RGID}\\tPL:ILLUMINA\\tSM:${SAMPLEID}"
-#   ${SAMTOOLS} addreplacerg -r "${NEWRG}" ${file} > ${RGBAM}
-   #Instead of samtools, use Picard to replace read groups:
    PICARDARGS="I=${file} O=${RGBAM} RGID=${RGID} RGLB=${RGID} RGPL=ILLUMINA RGPU=${RGID} RGSM=${SAMPLEID}"
    java -jar ${PICARD} AddOrReplaceReadGroups VALIDATION_STRINGENCY=SILENT ${PICARDARGS}
    RGBAMS+=("${RGBAM}")

@@ -2,6 +2,7 @@
 #Read in the command line arguments:
 #REF: Path to the reference used for mapping
 REF=$1
+STAR=$2
 
 mkdir -p logs
 
@@ -23,6 +24,23 @@ else
    echo "Skipping BWA index creation for ${REF}"
 fi
 
+#Make STAR index if requested:
+if [[ -n "${STAR}" ]]; then
+   if [[ ! -d "${REF}_genomeDir" ]]; then
+      echo "Making STAR index of ${REF}"
+      mkdir -p ${REF}_genomeDir
+      $STAR --runThreadN 1 --runMode genomeGenerate --genomeDir ${REF}_genomeDir --genomeFastaFiles ${REF}
+      STARIDXCODE=$?
+      if [[ $STARIDXCODE -ne 0 ]]; then
+         echo "STAR genomeGenerate on ${REF} failed with exit code ${STARIDXCODE}!"
+         exit 4
+      fi
+   else
+      echo "Skipping STAR index creation for ${REF}"
+   fi
+fi
+
+
 #Create an index of the reference FASTA:
 if [[ ! -e ${REF}.fai ]]; then
    echo "Making FASTA index of ${REF}"
@@ -40,4 +58,8 @@ else
    echo "Skipping .dict creation for ${REF}"
 fi
 
-echo "Done creating BWA index, .dict, and .fai for ${REF}"
+if [[ -n "${STAR}" ]]; then
+   echo "Done creating BWA index, STAR index, .dict, and .fai for ${REF}"
+else
+   echo "Done creating BWA index, .dict, and .fai for ${REF}"
+fi

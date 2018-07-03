@@ -1,34 +1,32 @@
 #!/bin/bash
 
-#This script uses a metadata file and $SLURM_ARRAY_TASK_ID to
-#run a pipeline job when submitted with sbatch -a
+#This script uses a metadata file to run a pipeline job
+# when submitted as bash or GNU parallel job
 
 #The arguments are:
-#1) job type (i.e. iADMD, IR, HC, VCFINSNP, PSEUDOFASTA, STAR, IRRNA, MPILEUP, MERGE, or POLYDIV)
-#2) metadata file (TSV comprised of prefix, ref, read file(s))
-# 2a) metadata file for MERGE is different: (merged BAM name, component BAM list)
-#3) Optional override of # cores used
-#4) special parameters (e.g. no_markdup, misencoded, "Alisa_v9 5")
+#1) Task ID (line of the metadata file to use)
+#2) job type (i.e. iADMD, IR, HC, VCFINSNP, PSEUDOFASTA, STAR, IRRNA, MPILEUP, MERGE, or POLYDIV)
+#3) metadata file (TSV comprised of prefix, ref, read file(s))
+# 3a) metadata file for MERGE is different: (merged BAM name, component BAM list)
+#4) Optional override of # cores used
+#5) special parameters (e.g. no_markdup, misencoded, "Alisa_v9 5")
 
-#Note: SLURM submission parameters are specified in the sbatch
-# call to this script (e.g. --mem, -N 1, --ntasks-per-node=1,
-# --cpus-per-task, -t, --qos, -J)
-
-JOBTYPE=$1
-METADATA=$2
+TASK_ID=$1
+JOBTYPE=$2
+METADATA=$3
 if [[ ! -e "$METADATA" ]]; then
    echo "The metadata file does not exist! Did you make a typo? The file you specified is: ${METADATA}"
    exit 2;
 fi
-if [[ ! -z "$3" ]]; then
-   CORES=" $3"
+if [[ ! -z "$4" ]]; then
+   CORES=" $4"
 fi
-SPECIAL=$4
+SPECIAL=$5
 
 WHICHSAMPLE=1
 while read -r -a metadatafields
    do
-   if [[ $WHICHSAMPLE -eq $SLURM_ARRAY_TASK_ID ]]; then
+   if [[ $WHICHSAMPLE -eq $TASK_ID ]]; then
       if [[ $JOBTYPE =~ "MERGE" ]]; then
          MERGED="${metadatafields[0]}"
          BAMLIST="${metadatafields[@]:1}"
@@ -65,9 +63,9 @@ while read -r -a metadatafields
       fi
    fi
    (( WHICHSAMPLE++ ))
-done < $2
+done < $METADATA
 if [[ -z "$PREFIX" && -z "$MERGED" ]]; then
-   echo "Unable to find sample $SLURM_ARRAY_TASK_ID in metadata file. Skipping."
+   echo "Unable to find sample $TASK_ID in metadata file. Skipping."
    exit 4
 fi
 
@@ -97,6 +95,7 @@ elif [[ $JOBTYPE =~ "VCFINSNP" ]]; then
    #Params: PREFIX REF SCRIPT MINDEPTH
    CMD="${SCRIPTDIR}/vcf_to_insnp.sh ${PREFIX} ${REF} ${SPECIAL}"
 elif [[ $JOBTYPE =~ "PSEUDOFASTA" ]]; then
+   #Params: PREFIX REF SPECIAL FILTERSTR
    #Params: PREFIX REF CALLER SPECIAL FILTERSTR
    #Lazy way would be to extract CALLER from SPECIAL and that's it
    IFS="," read -r -a specialops <<< "${SPECIAL}"

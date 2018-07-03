@@ -24,15 +24,13 @@ REFERENCE=$2
 # complains if you give it PHRED+64 data...
 #USEMARKDUP: Flag used to trigger use of non-markdupped BAM for Indel
 # Realignment
-if [[ -z "$3" ]]; then
-   MISENCODED=""
-   USEMARKDUP="_markdup"
-elif [[ $3 =~ "no_markdup" ]]; then
-   USEMARKDUP=""
-   MISENCODED=""
-else
-   USEMARKDUP="_markdup"
+MISENCODED=""
+USEMARKDUP="_markdup"
+if [[ $3 =~ "misencoded" ]]; then
    MISENCODED=" --fix_misencoded_quality_scores"
+fi
+if [[ $3 =~ "no_markdup" ]]; then
+   USEMARKDUP=""
 fi
 
 OUTPUTDIR=""

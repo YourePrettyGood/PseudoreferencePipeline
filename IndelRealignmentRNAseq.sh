@@ -20,17 +20,15 @@ REFERENCE=$2
 # complains if you give it PHRED+64 data...
 #FILTERZEROLEN: Flag used to trigger ignoring of alignments where bases are
 # not stored in the BAM (potentially for zero-length reads?)
-if [[ -z "$3" ]]; then
-   MISENCODED=""
-   FILTERZEROLEN=""
-elif [[ $3 =~ "filter_bases_not_stored" ]]; then
+MISENCODED=""
+FILTERZEROLEN=""
+if [[ $3 =~ "filter_bases_not_stored" ]]; then
    FILTERZEROLEN=" --filter_bases_not_stored"
-   MISENCODED=""
-elif [[ $3 =~ "filter_mismatching_base_and_quals" ]]; then
+fi
+if [[ $3 =~ "filter_mismatching_base_and_quals" ]]; then
    FILTERZEROLEN=" --filter_mismatching_base_and_quals"
-   MISENCODED=""
-else
-   FILTERZEROLEN=""
+fi
+if [[ $3 =~ "misencoded" ]]; then
    MISENCODED=" --fix_misencoded_quality_scores"
 fi
 

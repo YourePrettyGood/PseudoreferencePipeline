@@ -29,10 +29,18 @@ if [[ $4 =~ "misencoded" ]]; then
    MISENCODED=" --fix_misencoded_quality_scores"
 elif [[	$4 =~ "filter_mismatching_base_and_quals" ]]; then
    MISENCODED=" --filter_mismatching_base_and_quals"
-elif [[ -n "$4" ]]; then
-   MISENCODED=" " #Non-empty value so we don't use the realigned BAM
+fi
+if [[ $4 =~ "no_markdup" ]]; then
+   MARKDUP=""
+   NOMARKDUP="_nomarkdup"
 else
-   MISENCODED=""
+   MARKDUP="_markdup"
+   NOMARKDUP=""
+fi
+if [[ $4 =~ "no_IR" ]]; then
+   REALIGNED=""
+else
+   REALIGNED="_realigned"
 fi
 
 OUTPUTDIR=""
@@ -49,49 +57,42 @@ source ${SCRIPTDIR}/pipeline_environment.sh
 
 INPUTBAM=""
 #Check for the appropriate BAM:
-if [[ -n "${MISENCODED}" ]]; then
-   #If we did mark duplicates, check for the markdup BAM:
-   if [[ -e "${OUTPUTDIR}${SAMPLE}_sorted_markdup.bam" ]]; then
-      INPUTBAM="${OUTPUTDIR}${SAMPLE}_sorted_markdup.bam"
-      NOMARKDUP=""
-   elif [[ -e "${OUTPUTDIR}${SAMPLE}_sorted.bam" ]]; then
-      INPUTBAM="${OUTPUTDIR}${SAMPLE}_sorted.bam"
-      NOMARKDUP="_nomarkdup"
-      echo "Note: It appears you didn't mark duplicates for this sample."
-      echo "Beware false positive variant calls."
-   else
-      echo "Error: Could not find appropriate input BAM file."
-      exit 2
-   fi
+if [[ -n "${REALIGNED}" ]]; then
+   #if [[ -n "${MARKDUP}" ]]; then
+      #MD IR BAM
+   #else
+      #noMD IR BAM
+   #fi
+   INPUTBAM="${OUTPUTDIR}${SAMPLE}${MARKDUP}${REALIGNED}.bam"
 else
-   #If we didn't mark duplicates for indel realignment, the post-IR BAM
-   # has a slightly different name, so look for it:
-   if [[ -e "${OUTPUTDIR}${SAMPLE}_realigned.bam" ]]; then
-      INPUTBAM="${OUTPUTDIR}${SAMPLE}_realigned.bam"
-      NOMARKDUP="_nomarkdup"
-      echo "Note: It appears you didn't mark duplicates for this sample."
-      echo "Beware false positive variant calls."
-   elif [[ -e "${OUTPUTDIR}${SAMPLE}_markdup_realigned.bam" ]]; then
-      INPUTBAM="${OUTPUTDIR}${SAMPLE}_markdup_realigned.bam"
-      NOMARKDUP=""
-   else
-      echo "Error: Could not find appropriate input BAM file."
-      exit 2
-   fi
+   #if [[ -n "${MARKDUP}" ]]; then
+      #MD noIR BAM
+   #else
+      #noMD noIR BAM
+   #fi
+   INPUTBAM="${OUTPUTDIR}${SAMPLE}_sorted${MARKDUP}.bam"
+fi
+if [[ ! -e "${INPUTBAM}" ]]; then
+   echo "Error: Missing input BAM ${INPUTBAM}!"
+   exit 2
+fi
+if [[ ! -e "${INPUTBAM}.bai" ]]; then
+   echo "Input BAM was missing index, creating one now."
+   ${SAMTOOLS} index ${INPUTBAM}
 fi
 
 #Run HaplotypeCaller:
-#If a fifth option is set, output the "bamout" for diagnostics
+#Run the bamout HaplotypeCaller call if "bamout" is found in SPECIAL
 echo "Starting variant calling with HaplotypeCaller for sample ${SAMPLE}"
-if [[ -n "$5" ]]; then
-   java -Xmx30g -jar $GATK -T HaplotypeCaller -ERC GVCF -variant_index_type LINEAR -variant_index_parameter 128000 -nct ${NPROCS} -R ${REFERENCE} -I ${INPUTBAM} -o ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_HC_ERCGVCF.vcf -bamout ${OUTPUTDIR}${SAMPLE}_HC_bamout.bam -forceActive -disableOptimizations${MISENCODED} 2>&1 > ${OUTPUTDIR}logs/${SAMPLE}_GATK_HaplotypeCaller.log
+if [[ $4 =~ "bamout" ]]; then
+   java -Xmx30g -jar $GATK -T HaplotypeCaller -ERC GVCF -variant_index_type LINEAR -variant_index_parameter 128000 -nct ${NPROCS} -R ${REFERENCE} -I ${INPUTBAM} -o ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_HC_ERCGVCF.vcf -bamout ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_HC_bamout.bam -forceActive -disableOptimizations${MISENCODED} 2> ${OUTPUTDIR}logs/${SAMPLE}_GATK_HaplotypeCaller.stderr > ${OUTPUTDIR}logs/${SAMPLE}_GATK_HaplotypeCaller.stdout
    HCCODE=$?
    if [[ $HCCODE -ne 0 ]]; then
       echo "GATK HaplotypeCaller on ${INPUTBAM} failed with exit code ${HCCODE}!"
       exit 3
    fi
 else
-   java -Xmx30g -jar $GATK -T HaplotypeCaller -ERC GVCF -variant_index_type LINEAR -variant_index_parameter 128000 -nct ${NPROCS} -R ${REFERENCE} -I ${INPUTBAM} -o ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_HC_ERCGVCF.vcf${MISENCODED} 2>&1 > ${OUTPUTDIR}logs/${SAMPLE}_GATK_HaplotypeCaller.log
+   java -Xmx30g -jar $GATK -T HaplotypeCaller -ERC GVCF -variant_index_type LINEAR -variant_index_parameter 128000 -nct ${NPROCS} -R ${REFERENCE} -I ${INPUTBAM} -o ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_HC_ERCGVCF.vcf${MISENCODED} 2> ${OUTPUTDIR}logs/${SAMPLE}_GATK_HaplotypeCaller.stderr > ${OUTPUTDIR}logs/${SAMPLE}_GATK_HaplotypeCaller.stdout
    HCCODE=$?
    if [[ $HCCODE -ne 0 ]]; then
       echo "GATK HaplotypeCaller on ${INPUTBAM} failed with exit code ${HCCODE}!"
@@ -101,9 +102,9 @@ fi
 echo "HaplotypeCaller finished"
 
 #If HaplotypeCaller successfully produced its gVCF file, run GenotypeGVCFs:
-if [[ -e "${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_HC_ERCGVCF.vcf" ]]; then
+if [[ -e "${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_HC_ERCGVCF.vcf" ]]; then
    echo "Generating VCF including all sites using GenotypeGVCFs for sample ${SAMPLE}"
-   java -Xmx30g -jar $GATK -T GenotypeGVCFs -nt ${NPROCS} -R ${REFERENCE} -V ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_HC_ERCGVCF.vcf -allSites -o ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_HC_GGVCFs.vcf 2>&1 > ${OUTPUTDIR}logs/${SAMPLE}_GATK_GGVCFs.log
+   java -Xmx30g -jar $GATK -T GenotypeGVCFs -nt ${NPROCS} -R ${REFERENCE} -V ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_HC_ERCGVCF.vcf -allSites -o ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_HC_GGVCFs.vcf 2> ${OUTPUTDIR}logs/${SAMPLE}_GATK_GGVCFs.stderr > ${OUTPUTDIR}logs/${SAMPLE}_GATK_GGVCFs.stdout
    GGVCFCODE=$?
    if [[ $GGVCFCODE -ne 0 ]]; then
       echo "GATK GenotypeGVCFs on ${INPUTBAM} failed with exit code ${GGVCFCODE}!"

@@ -24,11 +24,21 @@ fi
 
 #Check that the input VCF file is there:
 if [[ -e ${OUTPUTDIR}${SAMPLE}_nomarkdup_HC_GGVCFs.vcf || -e ${OUTPUTDIR}${SAMPLE}_nomarkdup_HC_GGVCFs.vcf.gz ]]; then
-   echo "Auto-detected no marking of duplicates"
+   echo "Auto-detected no marking of duplicates, no indel realignment"
    NOMARKDUP="_nomarkdup"
-elif [[ -e ${OUTPUTDIR}${SAMPLE}_HC_GGVCFs.vcf || -e ${OUTPUTDIR}${SAMPLE}_HC_GGVCFs.vcf.gz ]]; then
-   echo "Auto-detected duplicates marked"
+   REALIGNED=""
+elif [[ -e ${OUTPUTDIR}${SAMPLE}_nomarkdup_realigned_HC_GGVCFs.vcf || -e ${OUTPUTDIR}${SAMPLE}_nomarkdup_realigned_HC_GGVCFs.vcf.gz ]]; then
+   echo "Auto-detected no marking of duplicates, but indel realigned"
+   NOMARKDUP="_nomarkdup"
+   REALIGNED="_realigned"
+elif [[ -e ${OUTPUTDIR}${SAMPLE}_realigned_HC_GGVCFs.vcf || -e ${OUTPUTDIR}${SAMPLE}_realigned_HC_GGVCFs.vcf.gz ]]; then
+   echo "Auto-detected marking of duplicates and indel realignment"
    NOMARKDUP=""
+   REALIGNED="_realigned"
+elif [[ -e ${OUTPUTDIR}${SAMPLE}_HC_GGVCFs.vcf || -e ${OUTPUTDIR}${SAMPLE}_HC_GGVCFs.vcf.gz ]]; then
+   echo "Auto-detected duplicates marked, but no indel realignment"
+   NOMARKDUP=""
+   REALIGNED=""
 else
    echo "Error: Could not find input VCF."
    exit 2
@@ -36,10 +46,10 @@ fi
 
 #Determine if input VCF is gzipped or not:
 GZIPPED=""
-if [[ -e ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_HC_GGVCFs.vcf.gz ]]; then
+if [[ -e ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_HC_GGVCFs.vcf.gz ]]; then
    GZIPPED=".gz"
 fi
-INPUTVCF="${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_HC_GGVCFs.vcf${GZIPPED}"
+INPUTVCF="${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_HC_GGVCFs.vcf${GZIPPED}"
 
 #Load the appropriate path variables for the VCF-to-in.snp code and seqtk:
 SCRIPTDIR=`dirname $0`
@@ -50,7 +60,7 @@ source ${SCRIPTDIR}/pipeline_environment.sh
 if [[ ${SCRIPT} =~ "Alisa" ]]; then
    if [[ ${SCRIPT} =~ "v9" ]]; then
       echo "Running insnp_v9_alisa.py on sample ${SAMPLE} with minimum depth ${MINDEPTH}"
-      ${ALISAV9} ${INPUTVCF} ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_Alisa.in.snp 20 ${MINDEPTH} 40 2 60 4 -12.5 -8.0 5
+      ${ALISAV9} ${INPUTVCF} ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_Alisa.in.snp 20 ${MINDEPTH} 40 2 60 4 -12.5 -8.0 5
       INSNPCODE=$?
       if [[ $INSNPCODE -ne 0 ]]; then
          echo "insnp_v9_alisa.py on ${INPUTVCF} failed with exit code ${INSNPCODE}!"
@@ -58,7 +68,7 @@ if [[ ${SCRIPT} =~ "Alisa" ]]; then
       fi
    else
       echo "Running insnp_v8_alisa.py on sample ${SAMPLE} with minimum depth ${MINDEPTH}"
-      ${ALISAV8} ${INPUTVCF} ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_Alisa.in.snp 20 ${MINDEPTH} 40 2 60 4 -12.5 -8.0 5
+      ${ALISAV8} ${INPUTVCF} ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_Alisa.in.snp 20 ${MINDEPTH} 40 2 60 4 -12.5 -8.0 5
       INSNPCODE=$?
       if [[ $INSNPCODE -ne 0 ]]; then
          echo "insnp_v8_alisa.py on ${INPUTVCF} failed with exit code ${INSNPCODE}!"
@@ -67,10 +77,10 @@ if [[ ${SCRIPT} =~ "Alisa" ]]; then
    fi
    if [[ ! ${SCRIPT} =~ "_no_seqtk" ]]; then
       echo "Running seqtk mutfa on sample ${SAMPLE}"
-      $SEQTK mutfa ${REFERENCE} ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_Alisa.in.snp > ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}_${SCRIPT}_updated.fasta
+      $SEQTK mutfa ${REFERENCE} ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_Alisa.in.snp > ${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}_${SCRIPT}_updated.fasta
       MUTFACODE=$?
       if [[ $MUTFACODE -ne 0 ]]; then
-         echo "seqtk mutfa on ${SAMPLE}${NOMARKDUP}_Alisa.in.snp failed with exit code ${MUTFACODE}!"
+         echo "seqtk mutfa on ${SAMPLE}${NOMARKDUP}${REALIGNED}_Alisa.in.snp failed with exit code ${MUTFACODE}!"
          exit 5
       fi
    fi

@@ -9,6 +9,9 @@
 #seqtk (can obtain via `git clone https://github.com/lh3/seqtk`)
 #STAR (can obtain via `git clone https://github.com/alexdobin/STAR --recursive`)
 
+#For PSEUDOFASTA task, also depends on:
+#BEDtools (can obtain via `git clone https://github.com/arq5x/bedtools2 --recursive`)
+
 export BWA="[Path to BWA]/bwa"
 export STAR="[Path to STAR]/STAR"
 export SAMTOOLS="[Path to Samtools]/samtools"
@@ -16,6 +19,13 @@ export BCFTOOLS="[Path to BCFtools]/bcftools"
 export TABIX="[Path to Tabix]/tabix"
 export PICARD="[Path to Picard]/picard.jar"
 export GATK="[Path to GATK]/GenomeAnalysisTK.jar"
+
+#For PSEUDOFASTA, particularly when VCFs are from GATK:
+export BEDTOOLS="[Path to BEDtools]/bedtools"
+
+#For heterozygosity and fixed difference rates from pseudoreferences:
+export LPDS="[Path to listPolyDivSites]/listPolyDivSites"
+export NOW="[Path to nonOverlappingWindows]/nonOverlappingWindows"
 
 #If you aren't going to use the VCFINSNP step, ignore these three lines:
 export SEQTK="[Path to seqtk]/seqtk"

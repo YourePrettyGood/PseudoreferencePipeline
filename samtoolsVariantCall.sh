@@ -5,9 +5,11 @@ if [[ $# -eq 0 ]]; then
    printf "Prefix is used to standardize intermediate and output file names.\n"
    printf "Reference genome must be wrapped FASTA with .fai and .dict.\n"
    printf "Number of cores allocated is 8 by default (match with --cpus-per-task).\n"
-   printf "Extra option is just if you realigned with GATK IndelRealigner\n"
-   printf "This script will automatically determine if you marked duplicates\n"
-   printf " or not, and adjusts the input BAM name accordingly.\n"
+   printf "Extra option is for indicating if you marked duplicates and/or\n"
+   printf "realigned with GATK IndelRealigner\n"
+   printf "Signify using the BAM without duplicates marked with no_markdup\n"
+   printf "Signify using a non-indel-realigned BAM with no_IR\n"
+   printf "Separate multiple extra options with commas and no spaces\n"
    exit 1
 fi
 #PREFIX: Prefix used for all intermediate and output files of the pipeline
@@ -20,11 +22,17 @@ if [[ -z "$3" ]]; then
    NUMPROCS=8
 fi
 
-#REALIGNED: Whether to use the indel-realigned BAM for variant calling
-if [[ -n "$4" ]]; then
-   REALIGNED="realigned" #Non-empty value so we do use the realigned BAM
+if [[ $4 =~ "no_markdup" ]]; then
+   MARKDUP=""
+   NOMARKDUP="_nomarkdup"
 else
-   REALIGNED="" #Empty value to avoid the realigned BAM
+   MARKDUP="_markdup"
+   NOMARKDUP=""
+fi
+if [[ $4 =~ "no_IR" ]]; then
+   REALIGNED=""
+else
+   REALIGNED="_realigned"
 fi
 
 OUTPUTDIR=""
@@ -42,34 +50,23 @@ source ${SCRIPTDIR}/pipeline_environment.sh
 INPUTBAM=""
 #Check for the appropriate BAM:
 if [[ -n "${REALIGNED}" ]]; then
-   #If we didn't mark duplicates for indel realignment, the post-IR BAM
-   # has a slightly different name, so look for it:
-   if [[ -e "${OUTPUTDIR}${PREFIX}_realigned.bam" ]]; then
-      INPUTBAM="${OUTPUTDIR}${PREFIX}_realigned.bam"
-      NOMARKDUP="_nomarkdup"
-      echo "Note: It appears you didn't mark duplicates for this sample."
-      echo "Beware false positive variant calls."
-   elif [[ -e "${OUTPUTDIR}${PREFIX}_markdup_realigned.bam" ]]; then
-      INPUTBAM="${OUTPUTDIR}${PREFIX}_markdup_realigned.bam"
-      NOMARKDUP=""
-   else
-      echo "Error: Could not find appropriate input BAM file."
-      exit 2
-   fi
+   #if [[ -n "${MARKDUP}" ]]; then
+      #MD IR BAM
+   #else
+      #noMD IR BAM
+   #fi
+   INPUTBAM="${OUTPUTDIR}${SAMPLE}${MARKDUP}${REALIGNED}.bam"
 else
-   #If we did mark duplicates, check for the markdup BAM:
-   if [[ -e "${OUTPUTDIR}${PREFIX}_sorted_markdup.bam" ]]; then
-      INPUTBAM="${OUTPUTDIR}${PREFIX}_sorted_markdup.bam"
-      NOMARKDUP=""
-   elif [[ -e "${OUTPUTDIR}${PREFIX}_sorted.bam" ]]; then
-      INPUTBAM="${OUTPUTDIR}${PREFIX}_sorted.bam"
-      NOMARKDUP="_nomarkdup"
-      echo "Note: It appears you didn't mark duplicates for this sample."
-      echo "Beware false positive variant calls."
-   else
-      echo "Error: Could not find appropriate input BAM file."
-      exit 2
-   fi
+   #if [[ -n "${MARKDUP}" ]]; then
+      #MD noIR BAM
+   #else
+      #noMD noIR BAM
+   #fi
+   INPUTBAM="${OUTPUTDIR}${SAMPLE}_sorted${MARKDUP}.bam"
+fi
+if [[ ! -e "${INPUTBAM}" ]]; then
+   echo "Error: Missing input BAM ${INPUTBAM}!"
+   exit 2
 fi
 
 OUTPUTVCF="${OUTPUTDIR}${PREFIX}${NOMARKDUP}${REALIGNED}_mpileupcall.vcf.gz"
@@ -84,7 +81,7 @@ fi
 ${TABIX} ${OUTPUTVCF}
 TABIXCODE=$?
 if [[ $TABIXCODE -ne 0 ]]; then
-   echo "Tabix failed to index ${INPUTBAM} with exit code ${TABIXCODE}!"
+   echo "Tabix failed to index ${OUTPUTVCF} with exit code ${TABIXCODE}!"
    exit 4
 fi
 echo "Samtools variant calling finished"

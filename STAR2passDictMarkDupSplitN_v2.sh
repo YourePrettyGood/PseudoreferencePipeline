@@ -68,17 +68,19 @@ if [[ -d "${STARTMP}" ]]; then
 fi
 
 #Generate the index for STAR:
-GENOMEDIR="${OUTPUTDIR}${PREFIX}_genomeDir"
+GENOMEDIR="${REF}_genomeDir"
 if [[ -d "${GENOMEDIR}" ]]; then
-   rm -rf ${GENOMEDIR}
-fi
-mkdir -p ${GENOMEDIR}
-echo "Generating STAR genome index for ${REF}"
-$STAR --runThreadN ${NUMPROCS} --runMode genomeGenerate --genomeDir ${GENOMEDIR} --genomeFastaFiles ${REF} --outFileNamePrefix ${OUTPUTDIR}${PREFIX} --outTmpDir ${STARTMP}
-STARIDXCODE=$?
-if [[ $STARIDXCODE -ne 0 ]]; then
-   echo "STAR genomeGenerate on ${REF} failed with exit code ${STARIDXCODE}!"
-   exit 4
+   #rm -rf ${GENOMEDIR}
+   echo "Skipping STAR index generation"
+else
+   mkdir -p ${GENOMEDIR}
+   echo "Generating STAR genome index for ${REF}"
+   $STAR --runThreadN ${NUMPROCS} --runMode genomeGenerate --genomeDir ${GENOMEDIR} --genomeFastaFiles ${REF} --outFileNamePrefix ${OUTPUTDIR}${PREFIX} --outTmpDir ${STARTMP}
+   STARIDXCODE=$?
+   if [[ $STARIDXCODE -ne 0 ]]; then
+      echo "STAR genomeGenerate on ${REF} failed with exit code ${STARIDXCODE}!"
+      exit 4
+   fi
 fi
 
 #Now run STAR 2-pass (on-the-fly), either with gzipped or uncompressed FASTQ files:
