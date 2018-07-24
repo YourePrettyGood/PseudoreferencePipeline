@@ -7,7 +7,7 @@ The pipeline has recently been adapted for use with GNU parallel, though this is
 1. BWA (can be obtained via `git clone https://github.com/lh3/bwa --recursive`)
 1. STAR (can be obtained via `git clone https://github.com/alexdobin/STAR --recursive`)
 1. Samtools (mainly used with versions 1.0+, unknown compatibility below that)
-1. BCFtools (for variant calling, must be used with versions 1.0+)
+1. BCFtools (for variant calling, must be used with versions 1.7+)
 1. Picard (can be obtained via `git clone https://github.com/broadinstitute/picard --recursive`)
 1. GATK (mainly tested with 3.4, and IR and HC tasks should work with newer)
 

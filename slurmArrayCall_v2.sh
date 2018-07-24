@@ -101,7 +101,7 @@ elif [[ $JOBTYPE =~ "PSEUDOFASTA" ]]; then
    #Lazy way would be to extract CALLER from SPECIAL and that's it
    IFS="," read -r -a specialops <<< "${SPECIAL}"
    CALLER="${specialops[0]}"
-   CMD="${SCRIPTDIR}/vcfToPseudoref.sh ${PREFIX} ${REF} ${CALLER} ${SPECIAL} '${FILTERSTR}'"
+   CMD="${SCRIPTDIR}/vcfToPseudoref.sh ${PREFIX} ${REF} ${CALLER} ${SPECIAL} ${FILTERSTR}"
 elif [[ $JOBTYPE =~ "MERGE" ]]; then
    #Params: MERGED BAMLIST
    CMD="${SCRIPTDIR}/MergeBAMs.sh ${MERGED} ${BAMLIST}"
