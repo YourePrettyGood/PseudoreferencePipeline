@@ -119,6 +119,11 @@ Several of the jobtypes/tasks have special options available to cope with variat
 `PSEUDOFASTA`:
 1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
 1. `no_IR`: Uses a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
+1. `indelmask_#`: Specifies masking of variant calls (but not invariant sites) within # bp of either side of an indel (e.g. `indelmask_8` masks 8 bp on either side of an indel)
+
+Note that for the `MPILEUP` caller, `indelmask_#` acts like adding the `-g #` flag to `bcftools filter`, and the `HC` implementation attempts to replicate this.
+
+Also note that the `#` for `indelmask_#` must be a positive integer (so may not be 0).  The `MPILEUP` implementation would treat this properly, but the `HC` implementation would not.
 
 ## Use of the pipeline without SLURM (i.e. with GNU Parallel)
 

@@ -109,7 +109,7 @@ if [[ $CALLER =~ "HC" ]]; then
    #Identify sites to mask by complementing the sites to update:
    echo "Constructing BED of sites to mask for sample ${SAMPLE}"
    MASKINGBED="${INTPREFIX}_sitesToMask.bed"
-   awk 'BEGIN{FS="\t";OFS="\t";}!/^#/{split($9, formatarr, ":"); for (elem in formatarr) {if (formatarr[elem] == "GT") {gtindex=elem;break;};}; split($10, samplearr, ":"); if (samplearr[gtindex] != "./.") {print $1, $2-1, $2;};}' ${UPDATEVCF} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai) 2> ${LOGPREFIX}_bedtoolscomplement.stderr > ${MASKINGBED}
+   awk 'BEGIN{FS="\t";OFS="\t";}!/^#/{split($9, formatarr, ":"); for (elem in formatarr) {if (formatarr[elem] == "GT") {gtindex=elem;break;};}; split($10, samplearr, ":"); if (samplearr[gtindex] != "./.") {print $1, $2-1, $2;};}' ${UPDATEVCF} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai | sort -k1,1) 2> ${LOGPREFIX}_bedtoolscomplement.stderr > ${MASKINGBED}
    MASKBEDCODE=$?
    if [[ $MASKBEDCODE -ne 0 ]]; then
       echo "bedtools merge or bedtools complement for sample ${SAMPLE} failed with exit code ${MASKBEDCODE}"
