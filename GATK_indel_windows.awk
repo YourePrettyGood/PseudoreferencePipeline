@@ -29,17 +29,39 @@ BEGIN{
       }
    }
 #Not a SNP:
-   if (maxlen > 1 || minlen < -1) {
+   if (maxlen > 0 || minlen < 0) {
+#Handle the typical case of indelwindow > 0:
+      if (indelwindow > 0) {
 #Insertion:
-      if (maxlen > -minlen) {
-         start=$2-indelwindow+1;
-         end=$2+indelwindow;
+         if (maxlen > -minlen) {
+            start=$2-indelwindow+1;
+            end=$2+indelwindow;
 #Deletion (and uncaught edge case of maxlen==-minlen):
-      } else {
-         start=$2-indelwindow+1;
-         end=$2-minlen+indelwindow;
-      }
+         } else {
+            start=$2-indelwindow+1;
+            end=$2-minlen+indelwindow;
+         }
 #Print the masking interval:
-      print $1, start-1, end;
+         if (start < 1) {
+            BEDstart=0;
+         } else {
+            BEDstart=start-1;
+         }
+         print $1, BEDstart, end;
+#Handle the special case of indelwindow == 0:
+      } else {
+#Deletion (and uncaught edge case of maxlen==-minlen):
+         if (maxlen <= -minlen) {
+            start=$2+1;
+            end=$2-minlen;
+#Print the masking interval:
+            if (start < 1) {
+               BEDstart=0;
+            } else {
+               BEDstart=start-1;
+            }
+            print $1, BEDstart, end;
+         }
+      }
    }
 }
