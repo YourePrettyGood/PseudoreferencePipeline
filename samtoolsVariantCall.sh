@@ -47,6 +47,25 @@ mkdir -p ${OUTPUTDIR}logs
 SCRIPTDIR=`dirname $0`
 source ${SCRIPTDIR}/pipeline_environment.sh
 
+BCFTOOLSVERSION="`${BCFTOOLS} --version | awk '/^bcftools/{split($2, versionarr, "-"); print versionarr[1];}'`"
+VERSIONARR=(${BCFTOOLSVERSION//./ })
+$SAMTOOLS mpileup -ugf ${REF} ${INPUTBAM} 2> ${OUTPUTDIR}logs/samtoolsMpileup${PREFIX}.stderr
+| $BCFTOOLS call -m -Oz -o ${OUTPUTVCF} 2>&1 > ${OUTPUTDIR}logs/bcftoolsCall${PREFIX}.log
+if [[ "${VERSIONARR[0]}" -gt "0" ]]; then
+   if [[ "${VERSIONARR[0]}" -eq "1" && "${VERSIONARR[1]}" -lt "7" ]]; then
+      echo "Using samtools mpileup, since BCFtools version is < 1.7"
+      MPILEUPCMD="${SAMTOOLS} mpileup -ugf ${REF}"
+      CALLCMD="${BCFTOOLS} call -m -Oz -o"
+   else
+      echo "Using bcftools mpileup, since BCFtools version is >= 1.7"
+      MPILEUPCMD="${BCFTOOLS} mpileup -Ou -o - --threads ${NUMPROCS} -f ${REF}"
+      CALLCMD="${BCFTOOLS} call --threads ${NUMPROCS} -m -Oz -o"
+   fi
+else
+   echo "Your version of BCFtools (${BCFTOOLSVERSION}) is too old to use, please update it"
+   exit 8
+fi
+
 INPUTBAM=""
 #Check for the appropriate BAM:
 if [[ -n "${REALIGNED}" ]]; then
@@ -71,7 +90,7 @@ fi
 
 OUTPUTVCF="${OUTPUTDIR}${PREFIX}${NOMARKDUP}${REALIGNED}_mpileupcall.vcf.gz"
 #Detect variants (including indels) with mpileup, and call variants with bcftools call, storing as a bgzipped VCF:
-$SAMTOOLS mpileup -ugf ${REF} ${INPUTBAM} 2> ${OUTPUTDIR}logs/samtoolsMpileup${PREFIX}.stderr | $BCFTOOLS call -m -Oz -o ${OUTPUTVCF} 2>&1 > ${OUTPUTDIR}logs/bcftoolsCall${PREFIX}.log
+${MPILEUPCMD} ${INPUTBAM} 2> ${OUTPUTDIR}logs/samtoolsMpileup${PREFIX}.stderr | ${CALLCMD} ${OUTPUTVCF} 2>&1 > ${OUTPUTDIR}logs/bcftoolsCall${PREFIX}.log
 MPCALLCODE=$?
 if [[ $MPCALLCODE -ne 0 ]]; then
    echo "Samtools Mpileup or BCFtools call failed on ${INPUTBAM} with exit code ${MPCALLCODE}!"
