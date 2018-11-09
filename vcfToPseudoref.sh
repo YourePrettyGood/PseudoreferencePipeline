@@ -18,11 +18,12 @@ if [[ -z "$FILTERSTR" ]]; then
    FILTERSTR="${@:4}"
 fi
 
-#Check if we want to mask positives around indels:
+#Check if we want to mask positives or all sites around indels:
 INDELWINDOW=""
-INDELMASKRE='indelmask_([0-9]+)'
+INDELMASKRE='(indelmaskp?)_([0-9]+)'
 if [[ ${SPECIAL} =~ $INDELMASKRE ]]; then
-   INDELWINDOW="${BASH_REMATCH[1]}"
+   INDELMASKTYPE="${BASH_REMATCH[1]}"
+   INDELWINDOW="${BASH_REMATCH[2]}"
    echo "Masking ${INDELWINDOW} bp around each indel for sample ${SAMPLE}"
 fi
 
@@ -84,16 +85,18 @@ if [[ $CALLER =~ "HC" ]]; then
          echo "GATK SelectVariants for indels failed for sample ${SAMPLE} with exit code ${INDELINTCODE}"
          exit 14
       fi
-      #Now extract positives within these intervals:
-      echo "Extracting variant calls within flanking regions of indels for sample ${SAMPLE}"
-      INDELMASKVCF="${INTPREFIX}_indelmask_${INDELWINDOW}.vcf"
-      java -jar ${GATK} -T SelectVariants -R ${REFERENCE} -V ${INPUTVCF} -o ${INDELMASKVCF} --intervals ${INDELMASKINTERVALS} -selectType SNP 2> ${LOGPREFIX}_GATKSelectVariants_indelmask_${INDELWINDOW}.stderr > ${LOGPREFIX}_GATKSelectVariants_indelmask_${INDELWINDOW}.stdout
-      INDELMASKCODE=$?
-      if [[ $INDELMASKCODE -ne 0 ]]; then
-         echo "GATK SelectVariants for SNPs near indels failed for sample ${SAMPLE} with exit code ${INDELMASKCODE}"
-         exit 15
+      if [[ "${INDELMASKTYPE}" == "indelmaskp" ]]; then
+         #Now extract positives within these intervals:
+         echo "Extracting variant calls within flanking regions of indels for sample ${SAMPLE}"
+         INDELMASKVCF="${INTPREFIX}_indelmask_${INDELWINDOW}.vcf"
+         java -jar ${GATK} -T SelectVariants -R ${REFERENCE} -V ${INPUTVCF} -o ${INDELMASKVCF} --intervals ${INDELMASKINTERVALS} -selectType SNP 2> ${LOGPREFIX}_GATKSelectVariants_indelmask_${INDELWINDOW}.stderr > ${LOGPREFIX}_GATKSelectVariants_indelmask_${INDELWINDOW}.stdout
+         INDELMASKCODE=$?
+         if [[ $INDELMASKCODE -ne 0 ]]; then
+            echo "GATK SelectVariants for SNPs near indels failed for sample ${SAMPLE} with exit code ${INDELMASKCODE}"
+            exit 15
+         fi
+         INDELMASK="--excludeIntervals ${INDELMASKVCF}"
       fi
-      INDELMASK="--excludeIntervals ${INDELMASKVCF}"
    fi
    #Extract SNPs to update by inverting the FILTERSTR:
    #Be sure to exclude sites with uncalled genotypes
@@ -109,7 +112,11 @@ if [[ $CALLER =~ "HC" ]]; then
    #Identify sites to mask by complementing the sites to update:
    echo "Constructing BED of sites to mask for sample ${SAMPLE}"
    MASKINGBED="${INTPREFIX}_sitesToMask.bed"
-   awk 'BEGIN{FS="\t";OFS="\t";}!/^#/{split($9, formatarr, ":"); for (elem in formatarr) {if (formatarr[elem] == "GT") {gtindex=elem;break;};}; split($10, samplearr, ":"); if (samplearr[gtindex] != "./.") {print $1, $2-1, $2;};}' ${UPDATEVCF} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai | sort -k1,1) 2> ${LOGPREFIX}_bedtoolscomplement.stderr > ${MASKINGBED}
+   if [[ "${INDELMASKTYPE}" == "indelmask" ]]; then
+      awk 'BEGIN{FS="\t";OFS="\t";}!/^#/{split($9, formatarr, ":"); for (elem in formatarr) {if (formatarr[elem] == "GT") {gtindex=elem;break;};}; split($10, samplearr, ":"); if (samplearr[gtindex] != "./.") {print $1, $2-1, $2;};}' ${UPDATEVCF} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai | sort -k1,1) 2> ${LOGPREFIX}_bedtoolscomplement.stderr | cat - ${INDELMASKINTERVALS} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - > ${MASKINGBED}
+   else
+      awk 'BEGIN{FS="\t";OFS="\t";}!/^#/{split($9, formatarr, ":"); for (elem in formatarr) {if (formatarr[elem] == "GT") {gtindex=elem;break;};}; split($10, samplearr, ":"); if (samplearr[gtindex] != "./.") {print $1, $2-1, $2;};}' ${UPDATEVCF} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai | sort -k1,1) 2> ${LOGPREFIX}_bedtoolscomplement.stderr > ${MASKINGBED}
+   fi
    MASKBEDCODE=$?
    if [[ $MASKBEDCODE -ne 0 ]]; then
       echo "bedtools merge or bedtools complement for sample ${SAMPLE} failed with exit code ${MASKBEDCODE}"
@@ -146,10 +153,11 @@ elif [[ $CALLER =~ "MPILEUP" ]]; then
    UPDATEVCF="${INTPREFIX}_filtered.vcf.gz"
    SITESTOUSEVCF="${INTPREFIX}_sitesToUse.vcf.gz"
    MASKINGBED="${INTPREFIX}_sitesToMask.bed"
+   INDELMASKINTERVALS="${INTPREFIX}_indelmaskintervals.bed"
    PSEUDOREF="${INTPREFIX}_final_pseudoref.fasta"
-   #Mask positives within INDELWINDOW around each indel, if INDELWINDOW is set:
+   #Mask positives within INDELWINDOW around each indel if INDELMASKTYPE="indelmaskp":
    INDELMASK=""
-   if [[ ! -z "${INDELWINDOW}" ]]; then
+   if [[ "${INDELMASKTYPE}" == "indelmaskp" ]]; then
       INDELMASK="--SnpGap ${INDELWINDOW}"
    fi
    #Filter sites using the filtering expression:
@@ -162,7 +170,18 @@ elif [[ $CALLER =~ "MPILEUP" ]]; then
    fi
    #Generate BED of masked sites:
    echo "Constructing BED of filtered variant and invariant sites for sample ${SAMPLE}"
-   ${BCFTOOLS} query -i 'FILTER=="PASS" && (TYPE=="SNP" || TYPE=="REF")' -f '%CHROM\t%POS0\t%POS\n' ${UPDATEVCF} 2> ${LOGPREFIX}_bcftoolsqueryused.stderr | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai) 2> ${LOGPREFIX}_bedtoolscomplement.stderr > ${MASKINGBED}
+   if [[ "${INDELMASKTYPE}" == "indelmask" ]]; then
+      echo "Merging in indel masking windows as well"
+      ${BCFTOOLS} view -v indels -H -Ov ${INPUTVCF} 2> ${LOGPREFIX}_bcftoolsViewIndels.stderr | ${SCRIPTDIR}/GATK_indel_windows.awk - ${INDELWINDOW} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - 2> ${LOGPREFIX}_bedtoolsMergeIndelWindows.stderr > ${INDELMASKINTERVALS}
+      INDELINTCODE=$?
+      if [[ $INDELINTCODE -ne 0 ]]; then
+         echo "bcftools view for indels, awk for making windows, sort, or bedtools merge for sample ${SAMPLE} failed with exit code ${INDELINTCODE}"
+         exit 16
+      fi
+      ${BCFTOOLS} query -i 'FILTER=="PASS" && (TYPE=="SNP" || TYPE=="REF")' -f '%CHROM\t%POS0\t%POS\n' ${UPDATEVCF} 2> ${LOGPREFIX}_bcftoolsqueryused.stderr | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai) 2> ${LOGPREFIX}_bedtoolscomplement.stderr | cat - ${INDELMASKINTERVALS} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - > ${MASKINGBED}
+   else
+      ${BCFTOOLS} query -i 'FILTER=="PASS" && (TYPE=="SNP" || TYPE=="REF")' -f '%CHROM\t%POS0\t%POS\n' ${UPDATEVCF} 2> ${LOGPREFIX}_bcftoolsqueryused.stderr | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai) 2> ${LOGPREFIX}_bedtoolscomplement.stderr > ${MASKINGBED}
+   fi
    MASKBEDCODE=$?
    if [[ $MASKBEDCODE -ne 0 ]]; then
       echo "bcftools query or bedtools complement for sample ${SAMPLE} failed with exit code ${MASKBEDCODE}"
