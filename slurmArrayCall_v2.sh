@@ -4,7 +4,7 @@
 #run a pipeline job when submitted with sbatch -a
 
 #The arguments are:
-#1) job type (i.e. iADMD, IR, HC, VCFINSNP, PSEUDOFASTA, STAR, IRRNA, MPILEUP, MERGE, or POLYDIV)
+#1) job type (i.e. iADMD, IR, HC, VCFINSNP, PSEUDOFASTA, STAR, IRRNA, MPILEUP, MERGE, POLYDIV, or DEPTH)
 #2) metadata file (TSV comprised of prefix, ref, read file(s))
 # 2a) metadata file for MERGE is different: (merged BAM name, component BAM list)
 #3) Optional override of # cores used
@@ -111,6 +111,9 @@ elif [[ $JOBTYPE =~ "MPILEUP" ]]; then
 elif [[ $JOBTYPE =~ "POLYDIV" ]]; then
    #Params: PREFIX REF SPECIAL
    CMD="${SCRIPTDIR}/polydiv.sh ${PREFIX} ${REF} ${SPECIAL}"
+elif [[ $JOBTYPE =~ "DEPTH" ]]; then
+   #Params: PREFIX SPECIAL
+   CMD="${SCRIPTDIR}/flagstatdepth.sh ${PREFIX} ${SPECIAL}"
 else
    echo "Unintelligible job type $JOBTYPE"
    exit 3

@@ -27,7 +27,7 @@ SCRIPTDIR=`dirname $0`
 source ${SCRIPTDIR}/pipeline_environment.sh
 
 ((WINDOWKB=WINDOWSIZE/1000))
-SAMPLE=${OUTPUTDIR}${PREFIX}*.fasta
+SAMPLE=${OUTPUTDIR}${PREFIX}*_final_pseudoref.fasta
 POLYTSV=${OUTPUTDIR}${PREFIX}_poly_w${WINDOWKB}kb.tsv
 DIVTSV=${OUTPUTDIR}${PREFIX}_div_w${WINDOWKB}kb.tsv
 
