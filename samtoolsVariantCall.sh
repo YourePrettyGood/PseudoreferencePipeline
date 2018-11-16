@@ -47,10 +47,8 @@ mkdir -p ${OUTPUTDIR}logs
 SCRIPTDIR=`dirname $0`
 source ${SCRIPTDIR}/pipeline_environment.sh
 
-BCFTOOLSVERSION="`${BCFTOOLS} --version | awk '/^bcftools/{split($2, versionarr, "-"); print versionarr[1];}'`"
+BCFTOOLSVERSION=`${BCFTOOLS} --version | awk '/^bcftools/{split($2, versionarr, "-"); print versionarr[1];}'`
 VERSIONARR=(${BCFTOOLSVERSION//./ })
-$SAMTOOLS mpileup -ugf ${REF} ${INPUTBAM} 2> ${OUTPUTDIR}logs/samtoolsMpileup${PREFIX}.stderr
-| $BCFTOOLS call -m -Oz -o ${OUTPUTVCF} 2>&1 > ${OUTPUTDIR}logs/bcftoolsCall${PREFIX}.log
 if [[ "${VERSIONARR[0]}" -gt "0" ]]; then
    if [[ "${VERSIONARR[0]}" -eq "1" && "${VERSIONARR[1]}" -lt "7" ]]; then
       echo "Using samtools mpileup, since BCFtools version is < 1.7"
