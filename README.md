@@ -1,12 +1,13 @@
 # PseudoreferencePipeline
 SLURM-based pipeline for alignment, variant calling, and generation of pseudoreference FASTAs from Illumina data (DNA- or RNAseq)
 
-The pipeline has recently been adapted for use with GNU parallel, though this is less well-tested.
+The pipeline has recently been adapted for use with GNU parallel, thus can be adapted for any cluster job engine that provides an integer environment variable indicating the task ID in a task array.  For SLURM, this is $SLURM_ARRAY_TASK_ID, for SGE this is $SGE_TASK_ID, for PBS this is $PBS_ARRAYID, for LSF this is $LSB_JOBINDEX.  The pipeline has only been officially tested with SLURM and on a standalone computer, so please let me know if you have success (or problems) running it with other job engines!
 
-## Dependencies
+## Core Dependencies
 1. BWA (can be obtained via `git clone https://github.com/lh3/bwa --recursive`)
 1. STAR (can be obtained via `git clone https://github.com/alexdobin/STAR --recursive`)
 1. Samtools (mainly used with versions 1.0+, unknown compatibility below that)
+1. HTSlib (a dependency of Samtools, so usually the version should match that of Samtools)
 1. BCFtools (for variant calling, must be used with versions 1.7+)
 1. Picard (can be obtained via `git clone https://github.com/broadinstitute/picard --recursive`)
 1. GATK (mainly tested with 3.4, and IR and HC tasks should work with newer)
@@ -17,13 +18,26 @@ The pipeline has recently been adapted for use with GNU parallel, though this is
 ## Optional dependency (for PSEUDOFASTA task)
 1. BEDtools (tested with 2.23.0+, should work with 2.3.0+)
 
-## Optional dependencies (for VCFINSNP task, which is deprecated)
-1. seqtk (can be obtained via `git clone https://github.com/lh3/seqtk`)
-1. VCF to in.snp script (may be packaged here in the future)
-
 ## Usage
 This pipeline semi-automates the process of alignment and variant calling for both DNAseq and RNAseq datasets.
 The modular design is such that you can diagnose problems occurring at most steps by looking at that module's log.  We also take advantage of SLURM task arrays in order to make alignment and variant calling among many samples paralellized across a cluster.
+
+Note that you need to set paths to the executables (and jar files) in pipeline_environment.sh, as this pipeline actively ignores your PATH variable.  This is intentional to ensure you know precisely which version of each dependency you are using.  Some cluster sysadmins like to change things up on you, and keep you on your toes ;)
+
+A typical DNAseq variant calling job involves the following tasks in sequence:
+1. indexDictFai.sh on the wrapped reference genome
+1. iADMD (mapping, sorting, and marking of duplicates)
+1. MERGE (optional, depending on dataset, adjusts ReadGroups and merges BAMs)
+1. IR (indel realignment with GATK IndelRealigner)
+1. HC or MPILEUP (variant calling with GATK HaplotypeCaller or BCFtools mpileup)
+1. PSEUDOFASTA (filtering of variants and masking of sites to make a diploid pseudoreference FASTA)
+
+The RNAseq pipeline involves the following tasks in sequence:
+1. indexDictFai.sh on the wrapped reference genome
+1. Align using the `STAR` task
+1. (Optional if multiple libraries per sample) Merge BAMs from the `STAR` task together using the `MERGE` task
+1. Realign around indels using the `IRRNA` task
+1. Call variants using the `HC` task
 
 **The first task in all instances of this pipeline is to index the reference genome(s) you want to use.**
 **It is CRITICALLY important that your reference genome FASTA is line-wrapped for usage with GATK.**
@@ -32,7 +46,7 @@ You can use something like the `fasta_formatter` program of the
 to wrap your reference genome.
 
 Once wrapped, then you can simply call:
-`indexDictFai.sh [wrapped FASTA]`
+`[path to PseudoreferencePipeline]/indexDictFai.sh [wrapped FASTA]`
 
 This will index your reference genome for use with BWA and STAR, create a sequence dictionary as used by GATK, and create a FASTA index (.fai file).
 
@@ -52,34 +66,6 @@ The metadata TSV file consists of 3 or 4 columns per line:
 
 Note that you can mix single-end and paired-end samples in the metadata file.
 
-The DNAseq pipeline goes as follows:
-1. Index your reference genome
-1. Align using the `iADMD` task
-1. (Optional if multiple libraries per sample) Merge BAMs from the `iADMD` task together using the `MERGE` task
-1. Realign around indels using the `IR` task
-1. Call variants using the `HC` or `MPILEUP` task
-
-The RNAseq pipeline goes as follows:
-1. Create a sequence dictionary and .fai file for your reference genome
-1. Align using the `STAR` task
-1. (Optional if multiple libraries per sample) Merge BAMs from the `STAR` task together using the `MERGE` task
-1. Realign around indels using the `IRRNA` task
-1. Call variants using the `HC` task
-
-The final task, `PSEUDOFASTA` (replaces `VCFINSNP`, which is deprecated), filters the VCF produced by the above pipelines (though more typically the DNAseq pipeline), updates reliable variant call sites (heterozygous sites are updated to the appropriate IUPAC degenerate base), and masks unreliable sites. For the `PSEUDOFASTA` task, the fourth argument to `slurmArrayCall_v2.sh` should be a comma-separated list including the ID of the variant caller used, so either `HC` or `MPILEUP`, and special options like `no_markdup` or `no_IR` to indicate which VCF to use. The metadata TSV also has a slightly different format for the `PSEUDOFASTA` task:
-
-Column 3 should be a filtering expression that evaluates to TRUE when a site **should** be masked. This filtering expression will be inverted to determine the sites kept/updated. The string should be a [JEXL expression](https://software.broadinstitute.org/gatk/documentation/article.php?id=1255) in the case of the SPECIAL option being `HC`, or a [BCFtools-style expression](https://samtools.github.io/bcftools/bcftools.html) in the case of `MPILEUP`.
-
-For GATK, such a JEXL expression might look like:
-
-`MQ <= 50.0 || DP <= 5`
-
-In this example, sites with MQ <= 50.0 or DP <= 5 would be masked, and sites with MQ > 50.0 **and** DP > 5 would be used for updating.
-
-A similar if not equivalent BCFtools-style expression would be:
-
-`INFO/MQ <= 50.0 || INFO/DP <= 5`
-
 ## Merging BAMs from multiple libraries of the same sample
 
 If you need to merge BAMs from multiple libraries, you will need multiple metadata files. The metadata file for the `MERGE` task follows a different format, with columns:
@@ -93,6 +79,52 @@ Be sure that the name for your merged BAM file follows the standard convention o
 
 Then you can make a new metadata file for downstream tasks (`IR`, `HC`, `MPILEUP`, etc.) in the same style as for `iADMD`, but with the first column equal to the `PREFIX` of your merged BAM.
 The FASTQ columns of the metadata file are not actively used for these downstream tasks, but are checked for existence, so just substitute in the paths used for the first library that was merged.
+
+## Indel Realignment and Variant Calling for a sample
+
+The `IR`, `IRRNA`, `HC`, and `MPILEUP` tasks all use a metadata file with format similar to the `iADMD` or `STAR` task.  If you had to `MERGE`, just make sure the last two columns for the indel realignment/variant calling metadata file point to a real set of FASTQs, or else the job will instantly fail out.  I still need to make a simple solution to avoid this, because these steps don't actually care about the input read files.
+
+Example calls for 8 samples using GNU parallel and SLURM:
+
+`parallel -j8 --eta '[path to PseudoreferencePipeline]/localArrayCall_v2.sh {1} IR my_IR_metadata.tsv 1 "" 2> logs/my_IR_line{1}.stderr > logs/my_IR_line{1}.stdout' ::: {1..8}`
+
+`[path to PseudoreferencePipeline]/localArrayCall_v2.sh ${SLURM_ARRAY_TASK_ID} IR my_IR_metadata.tsv 1 "" 2> logs/my_IR_line${SLURM_ARRAY_TASK_ID}.stderr > logs/my_IR_line${SLURM_ARRAY_TASK_ID}.stdout`
+
+Note that the `IR` and `IRRNA` steps are not multithreaded, so specifying more than 1 core won't speed anything up.  Also, versions of BCFtools older than 1.7 do not have a multithreading option, so the same applies for `MPILEUP` in that case.
+
+## Generating a diploid pseudoreference FASTA for a sample
+
+The final task, `PSEUDOFASTA`, filters the VCF produced by the above pipelines (though more typically the DNAseq pipeline), updates reliable variant call sites (heterozygous sites are updated to the appropriate IUPAC degenerate base), and masks unreliable sites. For the `PSEUDOFASTA` task, the fourth argument to `slurmArrayCall_v2.sh` should be a comma-separated list including the ID of the variant caller used, so either `HC` or `MPILEUP`, and special options like `no_markdup` or `no_IR` to indicate which VCF to use. The metadata TSV also has a slightly different format for the `PSEUDOFASTA` task:
+
+Column 3 should be a filtering expression that evaluates to TRUE when a site **should** be masked. This filtering expression will be inverted to determine the sites kept/updated. The string should be a [JEXL expression](https://software.broadinstitute.org/gatk/documentation/article.php?id=1255) in the case of the SPECIAL option being `HC`, or a [BCFtools-style expression](https://samtools.github.io/bcftools/bcftools.html) in the case of `MPILEUP`.
+
+For GATK, such a JEXL expression might look like:
+
+`DP <= 5 || MQ <= 50.0`
+
+In this example, sites with DP <= 5 or MQ <= 50.0 would be masked, and sites with MQ > 50.0 **and** DP > 5 would be used for updating.
+
+A similar if not equivalent BCFtools-style expression would be:
+
+`INFO/MQ <= 50.0 || INFO/DP <= 5`
+
+You can simulate in order to determine an optimized set of filtering thresholds using [VariantCallingSimulations](https://github.com/YourePrettyGood/VariantCallingSimulations).  Some preliminary results indicate that the following are reasonable thresholds for within-species mapping where pi is about 1%:
+
+MPILEUP: DP <= about 0.5 * average post-markdup depth || MQ <= 20.0 || QUAL <= 26.0
+
+GATK: DP <= about 0.5 * average post-markdup depth || MQ <= 50.0
+
+## Helper tasks `DEPTH` and `POLYDIV`:
+
+Two extra tasks are available to provide summaries of the data: `DEPTH` and `POLYDIV`
+
+The `POLYDIV` task requires the `listPolyDivSites` and `nonOverlappingWindows` programs from [RandomScripts](https://github.com/YourePrettyGood/RandomScripts) to have paths specified in `pipeline_environment.sh` under the variables named `LPDS` and `NOW`.
+
+The output files for `POLYDIV` have suffix `_poly_w#kb.tsv` and `_div_w#kb.tsv`, where `#` is the window size rescaled into kb.
+
+The `DEPTH` task runs a quick `samtools flagstat` on the BAM specified by the first column of the metadata file, plus the presence or absence of the `no_markdup` and `no_IR` flags in the `SPECIAL` argument list.  It then calculates the average depth in non-overlapping windows of size specified in the `SPECIAL` argument across each scaffold.
+
+The windowed depth values are stored in an output file with suffix `_depth_w#kb.tsv` with `#` as described for `POLYDIV`.  The flagstat results are stored in an output file with suffix `_flagstat.log`.
 
 ## Extra/Special options:
 
@@ -119,11 +151,20 @@ Several of the jobtypes/tasks have special options available to cope with variat
 `PSEUDOFASTA`:
 1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
 1. `no_IR`: Uses a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
-1. `indelmask_#`: Specifies masking of variant calls (but not invariant sites) within # bp of either side of an indel (e.g. `indelmask_8` masks 8 bp on either side of an indel)
+1. `indelmaskp_#`: Specifies masking of variant calls (but not invariant sites) within # bp of either side of an indel (e.g. `indelmaskp_8` masks 8 bp on either side of an indel)
+1. `indelmask_#`: Specifies masking of variant and invariant sites within # bp of either side of an indel (e.g. `indelmask_8` masks 8 bp on either side of an indel)
 
-Note that for the `MPILEUP` caller, `indelmask_#` acts like adding the `-g #` flag to `bcftools filter`, and the `HC` implementation attempts to replicate this.
+Note that for the `MPILEUP` caller, `indelmaskp_#` acts like adding the `-g #` flag to `bcftools filter`, and the `HC` implementation attempts to replicate this.
 
 Also note that the `#` for `indelmask_#` must be a positive integer (so may not be 0).  The `MPILEUP` implementation would treat this properly, but the `HC` implementation would not.
+
+`DEPTH`:
+1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
+1. `no_IR`: Uses a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
+1. `w#`: Specifies the window size to use for calculation of non-overlapping windowed depth (e.g. `w100000` for 100 kb non-overlapping windows)
+
+`POLYDIV`:
+1. `#`: Specifies the window size (in bp) to use for calculation of non-overlapping windowed heterozygosity and fixed difference rate
 
 ## Use of the pipeline without SLURM (i.e. with GNU Parallel)
 
@@ -132,3 +173,18 @@ This pipeline has recently been adapted for use with GNU Parallel. The only majo
 An example `iADMD` call using 8 cores per mapping job for a 32-line metadata file performing at most 4 jobs simultaneously might look like this:
 
 `parallel -j4 --eta '[path to PseudoreferencePipeline]/localArrayCall_v2.sh {1} iADMD example_metadata.tsv 8 2> example_job{1}_iADMD.stderr > example_job{1}_iADMD.stdout' ::: {1..32}`
+
+## Typical errors
+
+1. GATK RealignerTargetCreator fails
+	* Most often, this is because you forgot to wrap your reference FASTA, so go back and wrap it, run `indexDictFai.sh`, and then stick the name of the wrapped FASTA in your metadata file, and it should work
+	* Alternatively, this may be due to your FASTQ having PHRED+64 encoded quality scores.  If this is the case, rerun `IR` with the `misencoded` option
+	* If the error has something to do with zero-length read stored in the BAM, you may have trimmed your reads in such a way as to produce 0-length reads (and not throw them out)
+
+1. GATK HaplotypeCaller 
+	* Work in progress, there are plenty
+
+## Future wish-list
+
+[] Integrate FreeBayes for variant calling and `PSEUDOFASTA`
+[] Facilitate joint genotyping (currently only indirectly supported for both GATK and BCFtools)
