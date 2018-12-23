@@ -72,11 +72,11 @@ fi
 SCRIPTDIR=`dirname $0`
 
 if [[ $JOBTYPE =~ "iADMD" ]]; then
-   #Params: PREFIX REF READS CORES
-   CMD="${SCRIPTDIR}/indexAlignDictMarkDup_v2.sh ${PREFIX} ${REF} ${READS}${CORES}"
+   #Params: PREFIX REF READS CORES SPECIAL
+   CMD="${SCRIPTDIR}/indexAlignDictMarkDup_v2.sh ${PREFIX} ${REF} ${READS}${CORES} ${SPECIAL}"
 elif [[ $JOBTYPE =~ "STAR" ]]; then
-   #Params: 
-   CMD="${SCRIPTDIR}/STAR2passDictMarkDupSplitN_v2.sh ${PREFIX} ${REF} ${READS}${CORES}"
+   #Params: PREFIX REF READS CORES SPECIAL
+   CMD="${SCRIPTDIR}/STAR2passDictMarkDupSplitN_v2.sh ${PREFIX} ${REF} ${READS}${CORES} ${SPECIAL}"
 elif [[ $JOBTYPE =~ "IRRNA" ]]; then
    #Params: PREFIX REF SPECIAL
    CMD="${SCRIPTDIR}/IndelRealignmentRNAseq.sh ${PREFIX} ${REF} ${SPECIAL}"

@@ -12,13 +12,21 @@ REF=$2
 READS=$3
 #NUMPROCS: Number of cores to use for mapping
 NUMPROCS=8
+#SPECIAL: Special options, e.g.
+SPECIAL=""
 if [[ ! -z "$4" ]]; then
    if [[ $4 =~ ^[0-9]+$ ]]; then #If fourth argument exists and is numeric
       NUMPROCS=$4
+      if [[ ! -z "$5" ]]; then #If fifth argument exists, it is SPECIAL here
+         SPECIAL="$5"
+      fi
    else
       READS="${READS} $4" #Append the second read file to the string
       if [[ ! -z "$5" ]]; then
          NUMPROCS=$5
+         if [[ ! -z "$6" ]]; then #If sixth argument exists, it is SPECIAL here
+            SPECIAL="$6"
+         fi
       fi
    fi
 fi

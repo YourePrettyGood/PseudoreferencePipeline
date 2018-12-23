@@ -12,13 +12,21 @@ REF=$2
 READS=$3
 #NUMPROCS: Number of cores to use for mapping
 NUMPROCS=8
+#SPECIAL: Special options, e.g. interleaved for bwa mem -p
+SPECIAL=""
 if [[ ! -z "$4" ]]; then
    if [[ $4 =~ ^[0-9]+$ ]]; then #If fourth argument exists and is numeric
       NUMPROCS=$4
+      if [[ ! -z "$5" ]]; then #If fifth argument exists, it is SPECIAL here
+         SPECIAL="$5"
+      fi
    else
       READS="${READS} $4" #Append the second read file to the string
       if [[ ! -z "$5" ]]; then
          NUMPROCS=$5
+         if [[ ! -z "$6" ]]; then #If sixth argument exists, it is SPECIAL here
+            SPECIAL="$6"
+         fi
       fi
    fi
 fi
@@ -75,9 +83,18 @@ else
    echo "Skipping .dict creation for ${REF}"
 fi
 
+#SPECIAL options may add to the extra BWA options:
+BWAOPTIONS=""
+if [[ $SPECIAL =~ "interleaved" ]]; then #add the -p option
+   BWAOPTIONS="${BWAOPTIONS} -p"
+fi
+if [[ $SPECIAL =~ "comments" ]]; then #add the -C option
+   BWAOPTIONS="${BWAOPTIONS} -C"
+fi
+
 #Map the reads using BWA mem, convert the output to BAM, and coordinate-sort it using samtools:
-echo "Mapping ${READS} to ${REF} with bwa mem using ${NUMPROCS} cores"
-$BWA mem -t ${NUMPROCS} -R "@RG\\tID:${PREFIX}\\tSM:${PREFIX}\\tPL:ILLUMINA\\tLB:${PREFIX}" ${REF} ${READS} 2> ${OUTPUTDIR}logs/bwaMem${PREFIX}.stderr | $SAMTOOLS view -u -@ ${NUMPROCS} - 2> ${OUTPUTDIR}logs/samtoolsView${PREFIX}.stderr | $SAMTOOLS sort -@ ${NUMPROCS} -m 3G -T ${OUTPUTDIR}${PREFIX}_sorttemp -o ${OUTPUTDIR}${PREFIX}_sorted.bam 2>&1 > ${OUTPUTDIR}logs/samtoolsSort${PREFIX}.log
+echo "Mapping ${READS} to ${REF} with bwa mem using ${NUMPROCS} cores with extra options ${BWAOPTIONS}"
+$BWA mem ${BWAOPTIONS} -t ${NUMPROCS} -R "@RG\\tID:${PREFIX}\\tSM:${PREFIX}\\tPL:ILLUMINA\\tLB:${PREFIX}" ${REF} ${READS} 2> ${OUTPUTDIR}logs/bwaMem${PREFIX}.stderr | $SAMTOOLS view -u -@ ${NUMPROCS} - 2> ${OUTPUTDIR}logs/samtoolsView${PREFIX}.stderr | $SAMTOOLS sort -@ ${NUMPROCS} -m 3G -T ${OUTPUTDIR}${PREFIX}_sorttemp -o ${OUTPUTDIR}${PREFIX}_sorted.bam 2>&1 > ${OUTPUTDIR}logs/samtoolsSort${PREFIX}.log
 BWAMEMCODE=$?
 if [[ $BWAMEMCODE -ne 0 ]]; then
    echo "bwa mem of ${READS} against ${REF} failed with exit code ${BWAMEMCODE}!"

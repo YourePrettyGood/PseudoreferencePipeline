@@ -18,6 +18,9 @@ The pipeline has recently been adapted for use with GNU parallel, thus can be ad
 ## Optional dependency (for PSEUDOFASTA task)
 1. BEDtools (tested with 2.23.0+, should work with 2.3.0+)
 
+## Works in progress
+1. Integration of FreeBayes (depends on GNU Parallel and a bit of fancy vcflib path-work)
+
 ## Usage
 This pipeline semi-automates the process of alignment and variant calling for both DNAseq and RNAseq datasets.
 The modular design is such that you can diagnose problems occurring at most steps by looking at that module's log.  We also take advantage of SLURM task arrays in order to make alignment and variant calling among many samples paralellized across a cluster.
@@ -129,6 +132,10 @@ The windowed depth values are stored in an output file with suffix `_depth_w#kb.
 ## Extra/Special options:
 
 Several of the jobtypes/tasks have special options available to cope with variations on the standard pipeline, or quirks in GATK. Multiple options may be specified by including them in a comma-separated list (no spaces allowed in the list). Special options are as follows.
+`iADMD`:
+1. `interleaved`: The single FASTQ file provided is an interleaved FASTQ of paired-end reads (so use BWA's "smart pairing" mode)
+1. `comments`: Include string parts after the first space in the FASTQ header in the output BAM as comments (BWA option -C)
+
 `IR`:
 1. `misencoded`: FASTQ files from older Illumina sequencers have quality scores encoded as PHRED+64, and this flag converts them to PHRED+33, the standard
 1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
