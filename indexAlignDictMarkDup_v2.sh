@@ -97,6 +97,9 @@ fi
 if [[ $SPECIAL =~ "comments" ]]; then #add the -C option
    BWAOPTIONS="${BWAOPTIONS} -C"
 fi
+if [[ $SPECIAL =~ "all_alignments" ]]; then #add the -a option
+   BWAOPTIONS="${BWAOPTIONS} -a"
+fi
 
 if [[ "${SKIPALN}" -eq "0" ]]; then
    #Map the reads using BWA mem, convert the output to BAM, and coordinate-sort it using samtools:

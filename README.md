@@ -137,6 +137,7 @@ Several of the jobtypes/tasks have special options available to cope with variat
 1. `interleaved`: The single FASTQ file provided is an interleaved FASTQ of paired-end reads (so use BWA's "smart pairing" mode)
 1. `comments`: Include string parts after the first space in the FASTQ header in the output BAM as comments (BWA option -C)
 1. `only_markdup`: Assumes a sorted BAM already exists with name `[PREFIX]_sorted.bam`, skips alignment with BWA-MEM, and goes straight to Picard MarkDuplicates
+1. `all_alignments`: Output all found alignments (extra alignments marked as secondary) (BWA option -a)
 
 `IR`:
 1. `misencoded`: FASTQ files from older Illumina sequencers have quality scores encoded as PHRED+64, and this flag converts them to PHRED+33, the standard
