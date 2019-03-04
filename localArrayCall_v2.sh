@@ -95,7 +95,6 @@ elif [[ $JOBTYPE =~ "VCFINSNP" ]]; then
    #Params: PREFIX REF SCRIPT MINDEPTH
    CMD="${SCRIPTDIR}/vcf_to_insnp.sh ${PREFIX} ${REF} ${SPECIAL}"
 elif [[ $JOBTYPE =~ "PSEUDOFASTA" ]]; then
-   #Params: PREFIX REF SPECIAL FILTERSTR
    #Params: PREFIX REF CALLER SPECIAL FILTERSTR
    #Lazy way would be to extract CALLER from SPECIAL and that's it
    IFS="," read -r -a specialops <<< "${SPECIAL}"

@@ -132,6 +132,7 @@ The windowed depth values are stored in an output file with suffix `_depth_w#kb.
 ## Extra/Special options:
 
 Several of the jobtypes/tasks have special options available to cope with variations on the standard pipeline, or quirks in GATK. Multiple options may be specified by including them in a comma-separated list (no spaces allowed in the list). Special options are as follows.
+
 `iADMD`:
 1. `interleaved`: The single FASTQ file provided is an interleaved FASTQ of paired-end reads (so use BWA's "smart pairing" mode)
 1. `comments`: Include string parts after the first space in the FASTQ header in the output BAM as comments (BWA option -C)
@@ -156,8 +157,8 @@ Several of the jobtypes/tasks have special options available to cope with variat
 1. `no_IR`: Uses a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
 
 `PSEUDOFASTA`:
-1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
-1. `no_IR`: Uses a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
+1. `no_markdup`: Uses a VCF derived from a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
+1. `no_IR`: Uses a VCF derived from a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
 1. `indelmaskp_#`: Specifies masking of variant calls (but not invariant sites) within # bp of either side of an indel (e.g. `indelmaskp_8` masks 8 bp on either side of an indel)
 1. `indelmask_#`: Specifies masking of variant and invariant sites within # bp of either side of an indel (e.g. `indelmask_8` masks 8 bp on either side of an indel)
 
@@ -171,7 +172,9 @@ Also note that the `#` for `indelmask_#` must be a positive integer (so may not 
 1. `w#`: Specifies the window size to use for calculation of non-overlapping windowed depth (e.g. `w100000` for 100 kb non-overlapping windows)
 
 `POLYDIV`:
-1. `#`: Specifies the window size (in bp) to use for calculation of non-overlapping windowed heterozygosity and fixed difference rate
+1. `no_markdup`: Uses a VCF derived from a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
+1. `no_IR`: Uses a VCF derived from a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
+1. `w#`: Specifies the window size (in bp) to use for calculation of non-overlapping windowed heterozygosity and fixed difference rate (usually a multiple of 1000)
 
 ## Use of the pipeline without SLURM (i.e. with GNU Parallel)
 
@@ -194,4 +197,5 @@ An example `iADMD` call using 8 cores per mapping job for a 32-line metadata fil
 ## Future wish-list
 
 [] Integrate FreeBayes for variant calling and `PSEUDOFASTA`
+
 [] Facilitate joint genotyping (currently only indirectly supported for both GATK and BCFtools)
