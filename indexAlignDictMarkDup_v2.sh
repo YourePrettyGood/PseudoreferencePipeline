@@ -83,6 +83,12 @@ else
    echo "Skipping .dict creation for ${REF}"
 fi
 
+#SPECIAL options may skip alignment and go straight to markdup:
+SKIPALN=0
+if [[ $SPECIAL =~ "only_markdup" ]]; then #skip to markdup
+   SKIPALN=1
+fi
+
 #SPECIAL options may add to the extra BWA options:
 BWAOPTIONS=""
 if [[ $SPECIAL =~ "interleaved" ]]; then #add the -p option
@@ -92,13 +98,17 @@ if [[ $SPECIAL =~ "comments" ]]; then #add the -C option
    BWAOPTIONS="${BWAOPTIONS} -C"
 fi
 
-#Map the reads using BWA mem, convert the output to BAM, and coordinate-sort it using samtools:
-echo "Mapping ${READS} to ${REF} with bwa mem using ${NUMPROCS} cores with extra options ${BWAOPTIONS}"
-$BWA mem ${BWAOPTIONS} -t ${NUMPROCS} -R "@RG\\tID:${PREFIX}\\tSM:${PREFIX}\\tPL:ILLUMINA\\tLB:${PREFIX}" ${REF} ${READS} 2> ${OUTPUTDIR}logs/bwaMem${PREFIX}.stderr | $SAMTOOLS view -u -@ ${NUMPROCS} - 2> ${OUTPUTDIR}logs/samtoolsView${PREFIX}.stderr | $SAMTOOLS sort -@ ${NUMPROCS} -m 3G -T ${OUTPUTDIR}${PREFIX}_sorttemp -o ${OUTPUTDIR}${PREFIX}_sorted.bam 2>&1 > ${OUTPUTDIR}logs/samtoolsSort${PREFIX}.log
-BWAMEMCODE=$?
-if [[ $BWAMEMCODE -ne 0 ]]; then
-   echo "bwa mem of ${READS} against ${REF} failed with exit code ${BWAMEMCODE}!"
-   exit 5
+if [[ "${SKIPALN}" -eq "0" ]]; then
+   #Map the reads using BWA mem, convert the output to BAM, and coordinate-sort it using samtools:
+   echo "Mapping ${READS} to ${REF} with bwa mem using ${NUMPROCS} cores with extra options ${BWAOPTIONS}"
+   $BWA mem ${BWAOPTIONS} -t ${NUMPROCS} -R "@RG\\tID:${PREFIX}\\tSM:${PREFIX}\\tPL:ILLUMINA\\tLB:${PREFIX}" ${REF} ${READS} 2> ${OUTPUTDIR}logs/bwaMem${PREFIX}.stderr | $SAMTOOLS view -u -@ ${NUMPROCS} - 2> ${OUTPUTDIR}logs/samtoolsView${PREFIX}.stderr | $SAMTOOLS sort -@ ${NUMPROCS} -m 3G -T ${OUTPUTDIR}${PREFIX}_sorttemp -o ${OUTPUTDIR}${PREFIX}_sorted.bam 2>&1 > ${OUTPUTDIR}logs/samtoolsSort${PREFIX}.log
+   BWAMEMCODE=$?
+   if [[ $BWAMEMCODE -ne 0 ]]; then
+      echo "bwa mem of ${READS} against ${REF} failed with exit code ${BWAMEMCODE}!"
+      exit 5
+   fi
+else
+   echo "Skipping alignment as requested by ${SPECIAL} for sample ${PREFIX}"
 fi
 
 #Mark duplicates using Picard:

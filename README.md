@@ -136,6 +136,7 @@ Several of the jobtypes/tasks have special options available to cope with variat
 `iADMD`:
 1. `interleaved`: The single FASTQ file provided is an interleaved FASTQ of paired-end reads (so use BWA's "smart pairing" mode)
 1. `comments`: Include string parts after the first space in the FASTQ header in the output BAM as comments (BWA option -C)
+1. `only_markdup`: Assumes a sorted BAM already exists with name `[PREFIX]_sorted.bam`, skips alignment with BWA-MEM, and goes straight to Picard MarkDuplicates
 
 `IR`:
 1. `misencoded`: FASTQ files from older Illumina sequencers have quality scores encoded as PHRED+64, and this flag converts them to PHRED+33, the standard
@@ -192,10 +193,12 @@ An example `iADMD` call using 8 cores per mapping job for a 32-line metadata fil
 	* If the error has something to do with zero-length read stored in the BAM, you may have trimmed your reads in such a way as to produce 0-length reads (and not throw them out)
 
 1. GATK HaplotypeCaller 
+        * Occasionally, you may get an error about a read in the active region not being found in the BAM. This is typically due to multi-threading bugs in HaplotypeCaller, so try running with a different number of cores, or if you can afford it, run single-threaded. A single-threaded run should be almost guaranteed to fix this problem.
 	* Work in progress, there are plenty
 
 ## Future wish-list
 
 [] Integrate FreeBayes for variant calling and `PSEUDOFASTA`
+   At the moment, this is on hold because the `--report-monomorphic` option for reporting invariant sites is *extremely* slow even when parallelized, so testing is prohibitively slow.
 
 [] Facilitate joint genotyping (currently only indirectly supported for both GATK and BCFtools)
