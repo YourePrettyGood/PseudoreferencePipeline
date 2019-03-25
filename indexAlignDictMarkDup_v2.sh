@@ -83,10 +83,15 @@ else
    echo "Skipping .dict creation for ${REF}"
 fi
 
-#SPECIAL options may skip alignment and go straight to markdup:
+#SPECIAL options may skip alignment and go straight to markdup,
+# or perform only alignment and skip markdup:
 SKIPALN=0
+SKIPMD=0
 if [[ $SPECIAL =~ "only_markdup" ]]; then #skip to markdup
    SKIPALN=1
+fi
+if [[ $SPECIAL =~ "only_bwa" ]]; then #skip markdup
+   SKIPMD=1
 fi
 
 #SPECIAL options may add to the extra BWA options:
@@ -114,13 +119,27 @@ else
    echo "Skipping alignment as requested by ${SPECIAL} for sample ${PREFIX}"
 fi
 
-#Mark duplicates using Picard:
-echo "Marking duplicates using Picard for sample ${PREFIX}"
-java -Xmx30g -jar $PICARD MarkDuplicates INPUT=${OUTPUTDIR}${PREFIX}_sorted.bam OUTPUT=${OUTPUTDIR}${PREFIX}_sorted_markdup.bam METRICS_FILE=${OUTPUTDIR}${PREFIX}_markdup_metrics.txt 2>&1 > ${OUTPUTDIR}logs/picardMarkDuplicates${PREFIX}.log
-MARKDUPCODE=$?
-if [[ $MARKDUPCODE -ne 0 ]]; then
-   echo "Picard MarkDuplicates on ${PREFIX}_sorted.bam failed with exit code ${MARKDUPCODE}!"
-   exit 6
+#Index the BAM produced by BWA+SAMtools:
+echo "Indexing the sorted BAM for sample ${PREFIX}"
+$SAMTOOLS index ${OUTPUTDIR}${PREFIX}_sorted.bam 2>&1 > ${OUTPUTDIR}logs/samtoolsIndexSorted${PREFIX}.log
+INDEXCODE=$?
+if [[ $INDEXCODE -ne 0 ]]; then
+   echo "samtools index on ${PREFIX}_sorted.bam failed with exit code ${INDEXCODE}!"
+   exit 8
+fi
+
+
+if [[ "${SKIPMD}" -eq "0" ]]; then
+   #Mark duplicates using Picard:
+   echo "Marking duplicates using Picard for sample ${PREFIX}"
+   java -Xmx30g -jar $PICARD MarkDuplicates INPUT=${OUTPUTDIR}${PREFIX}_sorted.bam OUTPUT=${OUTPUTDIR}${PREFIX}_sorted_markdup.bam METRICS_FILE=${OUTPUTDIR}${PREFIX}_markdup_metrics.txt 2>&1 > ${OUTPUTDIR}logs/picardMarkDuplicates${PREFIX}.log
+   MARKDUPCODE=$?
+   if [[ $MARKDUPCODE -ne 0 ]]; then
+      echo "Picard MarkDuplicates on ${PREFIX}_sorted.bam failed with exit code ${MARKDUPCODE}!"
+      exit 6
+   fi
+else
+   echo "Skipping markdup as requested by ${SPECIAL} for sample ${PREFIX}"
 fi
 
 #Index the BAM produced by Picard MarkDuplicates:

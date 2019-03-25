@@ -91,10 +91,16 @@ else
    fi
 fi
 
+#Deal with SPECIAL for STAR options, like intronMotif:
+STAROPTIONS=""
+if [[ "${SPECIAL}" =~ "intronMotif" ]]; then
+   STAROPTIONS="${STAROPTIONS} --outSAMstrandField intronMotif"
+fi
+
 #Now run STAR 2-pass (on-the-fly), either with gzipped or uncompressed FASTQ files:
 echo "Running STAR 2-pass on ${READS} against ${REF} with ${NUMPROCS} cores"
-if [[ ${READS} =~ .gz ]]; then
-   $STAR --runThreadN ${NUMPROCS} --genomeDir ${GENOMEDIR} --outTmpDir ${STARTMP} --outSAMtype BAM Unsorted --outStd BAM_Unsorted --outFileNamePrefix ${OUTPUTDIR}${PREFIX}_ --readFilesCommand zcat --readFilesIn ${READS} --twopassMode Basic --outSAMmapqUnique 60 --outSAMattrRGline ID:${PREFIX} LB:${PREFIX} PL:ILLUMINA SM:${PREFIX} 2> ${OUTPUTDIR}logs/STAR2pass_${PREFIX}.stderr | $SAMTOOLS sort -@ ${NUMPROCS} -T ${OUTPUTDIR}${PREFIX}_sorttemp -o ${OUTPUTDIR}${PREFIX}_sorted.bam 2>&1 > ${OUTPUTDIR}logs/samtoolsSort_${PREFIX}.log
+if [[ ${READS} =~ ".gz" ]]; then
+   $STAR --runThreadN ${NUMPROCS} --genomeDir ${GENOMEDIR} --outTmpDir ${STARTMP} --outSAMtype BAM Unsorted --outStd BAM_Unsorted --outFileNamePrefix ${OUTPUTDIR}${PREFIX}_ --readFilesCommand zcat --readFilesIn ${READS} --twopassMode Basic --outSAMmapqUnique 60 ${STAROPTIONS} --outSAMattrRGline ID:${PREFIX} LB:${PREFIX} PL:ILLUMINA SM:${PREFIX} 2> ${OUTPUTDIR}logs/STAR2pass_${PREFIX}.stderr | $SAMTOOLS sort -@ ${NUMPROCS} -T ${OUTPUTDIR}${PREFIX}_sorttemp -o ${OUTPUTDIR}${PREFIX}_sorted.bam 2>&1 > ${OUTPUTDIR}logs/samtoolsSort_${PREFIX}.log
    STARCODE=$?
    if [[ $STARCODE -ne 0 ]]; then
       echo "STAR mapping of ${READS} on ${REF} failed with exit code ${STARCODE}!"
@@ -109,32 +115,52 @@ else
    fi
 fi
 
-#Mark duplicates using Picard:
-echo "Marking duplicates for ${PREFIX}_sorted.bam"
-java -Xmx30g -jar $PICARD MarkDuplicates INPUT=${OUTPUTDIR}${PREFIX}_sorted.bam OUTPUT=${OUTPUTDIR}${PREFIX}_sorted_markdup.bam METRICS_FILE=${OUTPUTDIR}${PREFIX}_markdup_metrics.txt 2>&1 > ${OUTPUTDIR}logs/picardMarkDuplicates${PREFIX}.log
-MARKDUPCODE=$?
-if [[ $MARKDUPCODE -ne 0 ]]; then
-   echo "Picard MarkDuplicates on ${PREFIX}_sorted.bam failed with exit code ${MARKDUPCODE}!"
-   exit 6
+if [[ ${SPECIAL} =~ "no_markdup" ]]; then
+   echo "Skipping marking of duplicates for sample ${PREFIX} due to special flag ${SPECIAL}"
+else
+   #Mark duplicates using Picard:
+   echo "Marking duplicates for ${PREFIX}_sorted.bam"
+   java -Xmx30g -jar $PICARD MarkDuplicates INPUT=${OUTPUTDIR}${PREFIX}_sorted.bam OUTPUT=${OUTPUTDIR}${PREFIX}_sorted_markdup.bam METRICS_FILE=${OUTPUTDIR}${PREFIX}_markdup_metrics.txt 2>&1 > ${OUTPUTDIR}logs/picardMarkDuplicates${PREFIX}.log
+   MARKDUPCODE=$?
+   if [[ $MARKDUPCODE -ne 0 ]]; then
+      echo "Picard MarkDuplicates on ${PREFIX}_sorted.bam failed with exit code ${MARKDUPCODE}!"
+      exit 6
+   fi
+   
+   #Index the BAM produced by Picard:
+   echo "Indexing the duplicate-marked BAM ${PREFIX}_sorted_markdup.bam"
+   $SAMTOOLS index ${OUTPUTDIR}${PREFIX}_sorted_markdup.bam 2>&1 > ${OUTPUTDIR}logs/samtoolsIndex${PREFIX}.log
+   BAMIDXCODE=$?
+   if [[ $BAMIDXCODE -ne 0 ]]; then
+      echo "samtools index on ${PREFIX}_sorted_markdup.bam failed with exit code ${BAMIDXCODE}!"
+      exit 7
+   fi
 fi
 
-#Index the BAM produced by Picard:
-echo "Indexing the duplicate-marked BAM ${PREFIX}_sorted_markdup.bam"
-$SAMTOOLS index ${OUTPUTDIR}${PREFIX}_sorted_markdup.bam 2>&1 > ${OUTPUTDIR}logs/samtoolsIndex${PREFIX}.log
-BAMIDXCODE=$?
-if [[ $BAMIDXCODE -ne 0 ]]; then
-   echo "samtools index on ${PREFIX}_sorted_markdup.bam failed with exit code ${BAMIDXCODE}!"
-   exit 7
-fi
-
-#Clean up the mapping results for use by HaplotypeCaller:
-echo "Cleaning up mapping results for use by GATK HaplotypeCaller"
-echo "using GATK SplitNCigarReads on ${PREFIX}_sorted_markdup.bam"
-java -jar $GATK -T SplitNCigarReads -R ${REF} -I ${OUTPUTDIR}${PREFIX}_sorted_markdup.bam -o ${OUTPUTDIR}${PREFIX}_sorted_markdup_splitN.bam -rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 -U ALLOW_N_CIGAR_READS 2>&1 > ${OUTPUTDIR}logs/${PREFIX}_GATK_SplitNCigarReads.log
-SPLITNCODE=$?
-if [[ $SPLITNCODE -ne 0 ]]; then
-   echo "GATK SplitNCigarReads on ${PREFIX}_sorted_markdup.bam failed with exit code ${SPLITNCODE}!"
-   exit 8
+if [[ ${SPECIAL} =~ "no_splitN" ]]; then
+   echo "Skipping GATK SplitNCigarReads for sample ${PREFIX} due to special options ${SPECIAL}"
+else
+   INPUTBAM="${OUTPUTDIR}${PREFIX}_sorted_markdup.bam"
+   OUTPUTBAM="${OUTPUTDIR}${PREFIX}_sorted_markdup_splitN.bam"
+   if [[ ${SPECIAL} =~ "no_markdup" ]]; then
+      INPUTBAM="${OUTPUTDIR}${PREFIX}_sorted.bam"
+      OUTPUTBAM="${OUTPUTDIR}${PREFIX}_sorted_splitN.bam"
+      ${SAMTOOLS} index ${INPUTBAM}
+      NOMDINDEXCODE=$?
+      if [[ $NOMDINDEXCODE -ne 0 ]]; then
+         echo "Indexing of non-markdup BAM before SplitNCigarReads failed with exit code ${NOMDINDEXCODE} for sample ${PREFIX}"
+         exit 9
+      fi
+   fi
+   #Clean up the mapping results for use by HaplotypeCaller:
+   echo "Cleaning up mapping results for use by GATK HaplotypeCaller"
+   echo "using GATK SplitNCigarReads on ${INPUTBAM}"
+   java -jar $GATK -T SplitNCigarReads -R ${REF} -I ${INPUTBAM} -o ${OUTPUTBAM} -rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 -U ALLOW_N_CIGAR_READS 2>&1 > ${OUTPUTDIR}logs/${PREFIX}_GATK_SplitNCigarReads.log
+   SPLITNCODE=$?
+   if [[ $SPLITNCODE -ne 0 ]]; then
+      echo "GATK SplitNCigarReads on ${PREFIX}_sorted_markdup.bam failed with exit code ${SPLITNCODE}!"
+      exit 8
+   fi
 fi
 
 echo "STAR2passDictMarkDupSplitN on sample ${PREFIX} is complete!"

@@ -136,12 +136,18 @@ Several of the jobtypes/tasks have special options available to cope with variat
 `iADMD`:
 1. `interleaved`: The single FASTQ file provided is an interleaved FASTQ of paired-end reads (so use BWA's "smart pairing" mode)
 1. `comments`: Include string parts after the first space in the FASTQ header in the output BAM as comments (BWA option -C)
+1. `only_bwa`: Omits the Picard MarkDuplicates step (make sure to use `no_markdup` with any further tasks if you use this)
 1. `only_markdup`: Assumes a sorted BAM already exists with name `[PREFIX]_sorted.bam`, skips alignment with BWA-MEM, and goes straight to Picard MarkDuplicates
 1. `all_alignments`: Output all found alignments (extra alignments marked as secondary) (BWA option -a)
 
 `IR`:
 1. `misencoded`: FASTQ files from older Illumina sequencers have quality scores encoded as PHRED+64, and this flag converts them to PHRED+33, the standard
 1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
+
+`STAR`:
+1. `no_markdup`: Skip the Picard MarkDuplicates step
+1. `no_splitN`: Skip the GATK SplitNCigarReads step
+1. `intronMotif`: Add the XS tag for reads aligning across canonical junctions (nominally for compatibility with Cufflinks and StringTie)
 
 `IRRNA`:
 1. `misencoded`: Only use this option if you skipped the IR step, and have PHRED+64 encoded FASTQ files
@@ -203,3 +209,6 @@ An example `iADMD` call using 8 cores per mapping job for a 32-line metadata fil
    At the moment, this is on hold because the `--report-monomorphic` option for reporting invariant sites is *extremely* slow even when parallelized, so testing is prohibitively slow.
 
 [] Facilitate joint genotyping (currently only indirectly supported for both GATK and BCFtools)
+
+[] Separate filtering and incorporation of indels into pseudoreferences
+   This is on hold for several reasons: Many tools for downstream analysis of pseudoreferences expect them to be in the same coordinate space which incorporating indels would violate; we haven't done thorough simulations and analysis of error rates in calling indels, so filtering criteria haven't been established. It's not too hard to incorporate into the pipeline though, it just means an extra filtering/selecting step, a possible VCF merging step, and adjusting the consensus call (not sure how GATK FastaAlternateReferenceMaker handles indels though).
