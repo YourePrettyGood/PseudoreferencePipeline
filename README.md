@@ -11,6 +11,7 @@ The pipeline has recently been adapted for use with GNU parallel, thus can be ad
 1. BCFtools (for variant calling, must be used with versions 1.7+)
 1. Picard (can be obtained via `git clone https://github.com/broadinstitute/picard --recursive`)
 1. GATK (mainly tested with 3.4, and IR and HC tasks should work with newer)
+1. Unix tools (i.e. bash, GNU awk, GNU sort)
 
 ## Optional dependency (if SLURM is not an option for you)
 1. GNU Parallel (if SLURM is not an option for you)
@@ -33,6 +34,7 @@ A typical DNAseq variant calling job involves the following tasks in sequence:
 1. MERGE (optional, depending on dataset, adjusts ReadGroups and merges BAMs)
 1. IR (indel realignment with GATK IndelRealigner)
 1. HC or MPILEUP (variant calling with GATK HaplotypeCaller or BCFtools mpileup)
+1. DEPTH (calculate windowed, per-scaffold, or genome-wide depth)
 1. PSEUDOFASTA (filtering of variants and masking of sites to make a diploid pseudoreference FASTA)
 
 The RNAseq pipeline involves the following tasks in sequence:
@@ -128,6 +130,12 @@ The output files for `POLYDIV` have suffix `_poly_w#kb.tsv` and `_div_w#kb.tsv`,
 The `DEPTH` task runs a quick `samtools flagstat` on the BAM specified by the first column of the metadata file, plus the presence or absence of the `no_markdup` and `no_IR` flags in the `SPECIAL` argument list.  It then calculates the average depth in non-overlapping windows of size specified in the `SPECIAL` argument across each scaffold.
 
 The windowed depth values are stored in an output file with suffix `_depth_w#kb.tsv` with `#` as described for `POLYDIV`.  The flagstat results are stored in an output file with suffix `_flagstat.log`.
+
+Two special modes exist for `DEPTH`:
+1. Genome-wide depth (set SPECIAL to `w0`), in which case the output file has suffix `_depth_genomewide.tsv`
+1. Per-scaffold depth (set SPECIAL to `w-1` or any negative number), in which case the output file has suffix `_depth_perScaf.tsv`
+
+The first of these (genome-wide depth) is useful for calculating the post-markdup depth to use for a filtering criterion in the `PSEUDOFASTA` task.
 
 ## Extra/Special options:
 

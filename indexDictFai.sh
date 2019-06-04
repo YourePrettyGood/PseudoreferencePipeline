@@ -2,7 +2,6 @@
 #Read in the command line arguments:
 #REF: Path to the reference used for mapping
 REF=$1
-STAR=$2
 
 mkdir -p logs
 
@@ -25,7 +24,7 @@ else
 fi
 
 #Make STAR index if requested:
-if [[ -n "${STAR}" ]]; then
+if [[ "$#" -gt 1 ]]; then
    if [[ ! -d "${REF}_genomeDir" ]]; then
       echo "Making STAR index of ${REF}"
       mkdir -p ${REF}_genomeDir
@@ -58,7 +57,7 @@ else
    echo "Skipping .dict creation for ${REF}"
 fi
 
-if [[ -n "${STAR}" ]]; then
+if [[ "$#" -gt 1 ]]; then
    echo "Done creating BWA index, STAR index, .dict, and .fai for ${REF}"
 else
    echo "Done creating BWA index, .dict, and .fai for ${REF}"
