@@ -1,4 +1,14 @@
 #!/bin/bash
+
+#Thoughts about modifications/avoiding future bugs:
+#1) Pass in number of component BAMs as cross-check
+#2) Construct FOFN of component BAMs rather than list of arguments to samtools
+#2a) A further problem lies in how the component BAMs are passed to this script
+#  since both the samtools call and the MergeBAMs.sh call may run into bash
+#  argument list length limits
+#  But if you're really merging *that many* BAMs, you probably shouldn't be
+#  using this pipeline.
+
 #Read in the command line arguments:
 #Output usage if none supplied:
 if [[ $# -eq 0 ]]; then
@@ -53,7 +63,7 @@ if [[ $MERGECODE -ne 0 ]]; then
 fi
 
 #Clean up the temporary Read Group-adjusted BAMs:
-rm -f ${RGBAMS}
+rm -f ${RGBAMS[@]}
 
 #Index the merged BAM:
 echo "Indexing merged BAM:"

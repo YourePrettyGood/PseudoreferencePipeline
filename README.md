@@ -1,7 +1,7 @@
 # PseudoreferencePipeline
-SLURM-based pipeline for alignment, variant calling, and generation of pseudoreference FASTAs from Illumina data (DNA- or RNAseq)
+Pipeline for alignment, variant calling, and generation of pseudoreference FASTAs from Illumina data (DNA- or RNAseq)
 
-The pipeline has recently been adapted for use with GNU parallel, thus can be adapted for any cluster job engine that provides an integer environment variable indicating the task ID in a task array.  For SLURM, this is $SLURM_ARRAY_TASK_ID, for SGE this is $SGE_TASK_ID, for PBS this is $PBS_ARRAYID, for LSF this is $LSB_JOBINDEX.  The pipeline has only been officially tested with SLURM and on a standalone computer, so please let me know if you have success (or problems) running it with other job engines!
+The pipeline was originally written for a SLURM cluster, but has been adapted for use with GNU parallel, and can be adapted for any cluster job engine that provides an integer environment variable indicating the task ID in a task array.  For SLURM, this is $SLURM_ARRAY_TASK_ID, for SGE this is $SGE_TASK_ID, for PBS this is $PBS_ARRAYID, for LSF this is $LSB_JOBINDEX.  The pipeline has only been officially tested with SLURM and on a standalone computer, so please let me know if you have success (or problems) running it with other job engines!
 
 ## Core Dependencies
 1. BWA (can be obtained via `git clone https://github.com/lh3/bwa --recursive`)
@@ -13,14 +13,15 @@ The pipeline has recently been adapted for use with GNU parallel, thus can be ad
 1. GATK (mainly tested with 3.4, and IR and HC tasks should work with newer)
 1. Unix tools (i.e. bash, GNU awk, GNU sort)
 
-## Optional dependency (if SLURM is not an option for you)
-1. GNU Parallel (if SLURM is not an option for you)
+## Optional dependency (if a job engine is not an option for you)
+1. GNU Parallel (if a job engine is not an option for you)
 
 ## Optional dependency (for PSEUDOFASTA task)
 1. BEDtools (tested with 2.23.0+, should work with 2.3.0+)
 
 ## Works in progress
 1. Integration of FreeBayes (depends on GNU Parallel and a bit of fancy vcflib path-work)
+1. Integration of other mappers (bowtie2, minimap2, HISAT2)
 
 ## Usage
 This pipeline semi-automates the process of alignment and variant calling for both DNAseq and RNAseq datasets.
@@ -29,16 +30,16 @@ The modular design is such that you can diagnose problems occurring at most step
 Note that you need to set paths to the executables (and jar files) in pipeline_environment.sh, as this pipeline actively ignores your PATH variable.  This is intentional to ensure you know precisely which version of each dependency you are using.  Some cluster sysadmins like to change things up on you, and keep you on your toes ;)
 
 A typical DNAseq variant calling job involves the following tasks in sequence:
-1. indexDictFai.sh on the wrapped reference genome
-1. iADMD (mapping, sorting, and marking of duplicates)
-1. MERGE (optional, depending on dataset, adjusts ReadGroups and merges BAMs)
-1. IR (indel realignment with GATK IndelRealigner)
-1. HC or MPILEUP (variant calling with GATK HaplotypeCaller or BCFtools mpileup)
-1. DEPTH (calculate windowed, per-scaffold, or genome-wide depth)
-1. PSEUDOFASTA (filtering of variants and masking of sites to make a diploid pseudoreference FASTA)
+1. `indexDictFai.sh` on the wrapped reference genome
+1. `MAP`, aka `iADMD` (mapping, sorting, and marking of duplicates)
+1. `MERGE` (optional, depending on dataset, adjusts ReadGroups and merges BAMs)
+1. `IR` (indel realignment with GATK IndelRealigner)
+1. `HC` or `MPILEUP` (variant calling with GATK HaplotypeCaller or BCFtools mpileup)
+1. `DEPTH` (calculate windowed, per-scaffold, or genome-wide depth)
+1. `PSEUDOFASTA` (filtering of variants and masking of sites to make a diploid pseudoreference FASTA)
 
 The RNAseq pipeline involves the following tasks in sequence:
-1. indexDictFai.sh on the wrapped reference genome
+1. `indexDictFai.sh` on the wrapped reference genome
 1. Align using the `STAR` task
 1. (Optional if multiple libraries per sample) Merge BAMs from the `STAR` task together using the `MERGE` task
 1. Realign around indels using the `IRRNA` task
@@ -53,17 +54,26 @@ to wrap your reference genome.
 Once wrapped, then you can simply call:
 `[path to PseudoreferencePipeline]/indexDictFai.sh [wrapped FASTA]`
 
-This will index your reference genome for use with BWA and STAR, create a sequence dictionary as used by GATK, and create a FASTA index (.fai file).
+This will index your reference genome for use with BWA by default, create a sequence dictionary as used by GATK, and create a FASTA index (.fai file).
+
+If you're not using BWA for mapping, the full usage for `indexDictFai.sh` is:
+`[path to PseudoreferencePipeline]/indexDictFai.sh [wrapped FASTA] [mapper] [annotation]`
+
+Values for `[mapper]` with tested support include `BWA` and `STAR`. Other untested values include `BT2` (bowtie2), `MM2` (minimap2), and `HISAT2` (HISAT2), however these mappers haven't been implemented in the `MAP`, `PBMAP`, and `STAR` tasks yet.
+
+The `[annotation]` option is currently untested, but intended for future support of annotation-aware RNAseq mapping (e.g. with STAR or HISAT2).
 
 Once your reference genome(s) are indexed, you can proceed with the main pipeline.
 
-The main wrapper workhorse is slurmArrayCall_v2.sh, which gets called by your SBATCH script, and performs the specified job on a sample specified by a line in a metadata TSV file.
+## How to run the parallel parts of the PseudoreferencePipeline:
 
-Note: In the case when you don't have SLURM available, you can use localArrayCall_v2.sh in a call to GNU Parallel (see the end of this README for details). Hypothetically, localArrayCall_v2.sh could work for array submissions for any job engine, including SLURM, as long as an environment variable is available to indicate the current task number (like SLURM_ARRAY_TASK_ID for SLURM).  However, only GNU parallel has been tested with localArrayCall_v2.sh.
+The main wrapper workhorse is `slurmArrayCall_v2.sh`, which gets called by your SBATCH script, and performs the specified job on a sample specified by a line in a metadata TSV file.
+
+Note: In the case when you don't have SLURM available, you can use localArrayCall_v2.sh in a call to GNU Parallel (see the end of this README for details). Hypothetically, localArrayCall_v2.sh could work for array submissions for any job engine, including SLURM, as long as an environment variable is available to indicate the current task number (like SLURM_ARRAY_TASK_ID for SLURM).  However, only GNU parallel has been tested with localArrayCall_v2.sh. In fact, I'll be updating `slurmArrayCall_v2.sh` such that it's simply a wrapper for `localArrayCall_v2.sh` in the near future.
 
 Take a look at the `SBATCH_template_*.sbatch` files for examples of how to make your SBATCH submission scripts to run this pipeline.
 
-The metadata TSV file consists of 3 or 4 columns per line:
+The typical mapping, IR, and variant calling metadata TSV file consists of 3 or 4 columns per line:
 1. A prefix to use for all intermediate and final output files
 1. The path to the **wrapped** reference genome FASTA
 1. The first read file for the sample (typically a gzipped FASTQ)
@@ -75,8 +85,8 @@ Note that you can mix single-end and paired-end samples in the metadata file.
 
 If you need to merge BAMs from multiple libraries, you will need multiple metadata files. The metadata file for the `MERGE` task follows a different format, with columns:
 1. Full path and name for the merged BAM file
-1. Full path to the first library's BAM file (from `iADMD`)
-1. Full path to the second library's BAM file (from `iADMD`)
+1. Full path to the first library's BAM file (from `MAP`)
+1. Full path to the second library's BAM file (from `MAP`)
 1. etc.
 
 Be sure that the name for your merged BAM file follows the standard convention of this pipeline:
@@ -119,6 +129,35 @@ MPILEUP: DP <= about 0.5 * average post-markdup depth || MQ <= 20.0 || QUAL <= 2
 
 GATK: DP <= about 0.5 * average post-markdup depth || MQ <= 50.0
 
+### Generating a pseudoreference from joint genotyping:
+
+To use `PSEUDOFASTA` with the output of `JOINTGENO` (described below), be sure to add a fourth column to your `PSEUDOFASTA` metadata file that contains the prefix of the jointly-genotyped VCF (i.e. the first column of your `JOINTGENO` metadata file.
+
+Also, make **absolutely** sure to use the `jointgeno` SPECIAL option, otherwise `PSEUDOFASTA` will just ignore the joint prefix, and run in single-sample mode.
+
+## Joint genotyping:
+
+If you wish to perform joint genotyping on your samples, you'll need to use the `JOINTGENO` task. The metadata file for this task has a slightly different format than usual, with columns:
+1. The prefix to use for the output jointly-genotyped VCF
+1. The reference FASTA (same as the usual second column)
+1. The prefix used for the previous task on the first sample
+1. The prefix used for the previous task on the second sample
+1. etc.
+
+Aside from that, `JOINTGENO` just needs to know which variant caller to use as a SPECIAL option (i.e. `HC` or `MPILEUP`). 
+
+One **major** difference between applying `JOINTGENO` to GATK HaplotypeCaller versus BCFtools is that we require that you run the `HC` task with the `no_geno` option prior to running `JOINTGENO`, whereas you can just run the BCFtools version of `JOINTGENO` from BAMs, no need to run the `MPILEUP` task beforehand. This is because joint genotyping for GATK happens at the GenotypeGVCFs step, not at the HaplotypeCaller step, so it operates on VCFs, and you will want to parallelize your HaplotypeCaller calls, which `JOINTGENO` wouldn't be able to do efficiently by itself.
+
+Default INFO and FORMAT tags output in the jointly-genotyped VCF:
+For bcftools versions < 1.3:
+DP, DP4, SP
+
+For bcftools versions >= 1.3 and < 1.7:
+DP, AD, SP, ADF, ADR
+
+For bcftools versions >= 1.7:
+DP, AD, SP, ADF, ADR
+
 ## Helper tasks `DEPTH` and `POLYDIV`:
 
 Two extra tasks are available to provide summaries of the data: `DEPTH` and `POLYDIV`
@@ -131,9 +170,9 @@ The `DEPTH` task runs a quick `samtools flagstat` on the BAM specified by the fi
 
 The windowed depth values are stored in an output file with suffix `_depth_w#kb.tsv` with `#` as described for `POLYDIV`.  The flagstat results are stored in an output file with suffix `_flagstat.log`.
 
-Two special modes exist for `DEPTH`:
-1. Genome-wide depth (set SPECIAL to `w0`), in which case the output file has suffix `_depth_genomewide.tsv`
-1. Per-scaffold depth (set SPECIAL to `w-1` or any negative number), in which case the output file has suffix `_depth_perScaf.tsv`
+Two special modes exist for `DEPTH` and `POLYDIV`:
+1. Genome-wide average (set SPECIAL to `w0`), in which case the output file has suffix `_depth_genomewide.tsv`, `_poly_genomewide.tsv`, or `_div_genomewide.tsv`
+1. Per-scaffold averages (set SPECIAL to `w-1` or any negative number), in which case the output file has suffix `_depth_perScaf.tsv`, `_poly_perScaf.tsv`, or `_div_perScaf.tsv`
 
 The first of these (genome-wide depth) is useful for calculating the post-markdup depth to use for a filtering criterion in the `PSEUDOFASTA` task.
 
@@ -141,14 +180,17 @@ The first of these (genome-wide depth) is useful for calculating the post-markdu
 
 Several of the jobtypes/tasks have special options available to cope with variations on the standard pipeline, or quirks in GATK. Multiple options may be specified by including them in a comma-separated list (no spaces allowed in the list). Special options are as follows.
 
-`iADMD`:
+`MAP` (aka `iADMD`):
+1. `only_bwa`: Omits the Picard MarkDuplicates step (make sure to use `no_markdup` with any further tasks if you use this)
+1. `no_markdup`: Exactly the same thing as `only_bwa`, meant for argument continuity with later tasks
+1. `only_markdup`: Assumes a sorted BAM already exists with name `[PREFIX]_sorted.bam`, skips alignment with BWA-MEM, and goes straight to Picard MarkDuplicates
+1. `mem_#[mg]`: Set the maximum heap size for Java (during Picard MarkDuplicates) to #[mg], e.g. 30g for 30 GB (the default) would be mem_30g
 1. `interleaved`: The single FASTQ file provided is an interleaved FASTQ of paired-end reads (so use BWA's "smart pairing" mode)
 1. `comments`: Include string parts after the first space in the FASTQ header in the output BAM as comments (BWA option -C)
-1. `only_bwa`: Omits the Picard MarkDuplicates step (make sure to use `no_markdup` with any further tasks if you use this)
-1. `only_markdup`: Assumes a sorted BAM already exists with name `[PREFIX]_sorted.bam`, skips alignment with BWA-MEM, and goes straight to Picard MarkDuplicates
 1. `all_alignments`: Output all found alignments (extra alignments marked as secondary) (BWA option -a)
 
 `IR`:
+1. `mem_#[mg]`: Set the maximum heap size for Java (during GATK calls) to #[mg], e.g. 30g for 30 GB (the default) would be mem_30g
 1. `misencoded`: FASTQ files from older Illumina sequencers have quality scores encoded as PHRED+64, and this flag converts them to PHRED+33, the standard
 1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
 
@@ -158,21 +200,38 @@ Several of the jobtypes/tasks have special options available to cope with variat
 1. `intronMotif`: Add the XS tag for reads aligning across canonical junctions (nominally for compatibility with Cufflinks and StringTie)
 
 `IRRNA`:
+1. `mem_#[mg]`: Set the maximum heap size for Java (during GATK calls) to #[mg], e.g. 30g for 30 GB (the default) would be mem_30g
 1. `misencoded`: Only use this option if you skipped the IR step, and have PHRED+64 encoded FASTQ files
 1. `filter_mismatching_base_and_quals`: This option drops reads where the length of the sequence and quality scores differ
 1. `filter_bases_not_stored`: This option drops reads of length 0 (in case your FASTQ gets mangled during adapter or quality trimming)
 
 `HC`:
+1. `no_HC`: Skips the HaplotypeCaller step and goes directly to GenotypeGVCFs
+1. `no_geno`: Skips the GenotypeGVCFs step (use this prior to joint genotyping)
+1. `mem_#[mg]`: Set the maximum heap size for Java (during GATK calls) to #[mg], e.g. 30g for 30 GB (the default) would be mem_30g
 1. `misencoded`: Only use this option if you skipped the IR step, and have PHRED+64 encoded FASTQ files
 1. `filter_mismatching_base_and_quals`: This option drops reads where the length of the sequence and quality scores differ
 1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
 1. `no_IR`: Uses a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
+1. `hets_#`: Sets the expected heterozygosity rate (`-hets` for GenotypeGVCFs) to the number specified (should be a decimal greater than 0.0, and less than or equal to 1.0) -- not fully implemented yet
 
 `MPILEUP`:
 1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
 1. `no_IR`: Uses a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
+1. `hets_#`: Sets the expected heterozygosity rate (`-P` for `bcftools call`) to the number specified (should be a decimal greater than 0.0, and less than or equal to 1.0)
+
+`JOINTGENO`:
+1. `HC`: Use GATK HaplotypeCaller and GenotypeGVCFs for joint genotyping
+1. `MPILEUP`: Use samtools/BCFtools mpileup and BCFtools call for joint genotyping
+1. `no_markdup`: Uses a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
+1. `no_IR`: Uses a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
+1. `mem_#[mg]`: Set the maximum heap size for Java (during GATK calls) to #[mg], e.g. 30g for 30 GB (the default) would be mem_30g
+1. `hets_#`: Sets the expected heterozygosity rate (`-hets` for `GenotypeGVCFs`, or `-P` for `bcftools call`) to the number specified (should be a decimal greater than 0.0, and less than or equal to 1.0)
 
 `PSEUDOFASTA`:
+1. `HC`: Use a VCF derived from GATK HaplotypeCaller (either the `HC` task or `JOINTGENO` with `HC`)
+1. `MPILEUP`: Use a VCF derived from samtools/BCFtools mpileup and BCFtools call (either the `MPILEUP` task or `JOINTGENO` with `MPILEUP`)
+1. `jointgeno`: Triggers using a jointly-genotyped VCF as input, using the first column of the metadata file as the sample ID in the VCF
 1. `no_markdup`: Uses a VCF derived from a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
 1. `no_IR`: Uses a VCF derived from a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
 1. `indelmaskp_#`: Specifies masking of variant calls (but not invariant sites) within # bp of either side of an indel (e.g. `indelmaskp_8` masks 8 bp on either side of an indel)
@@ -188,19 +247,24 @@ Also note that the `#` for `indelmask_#` must be a positive integer (so may not 
 1. `w#`: Specifies the window size to use for calculation of non-overlapping windowed depth (e.g. `w100000` for 100 kb non-overlapping windows)
 
 `POLYDIV`:
-1. `no_markdup`: Uses a VCF derived from a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
-1. `no_IR`: Uses a VCF derived from a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
+1. `no_markdup`: Uses a pseudoref derived from a BAM in which no duplicates have been marked (e.g. `[PREFIX]_sorted.bam` or `[PREFIX]_realigned.bam`)
+1. `no_IR`: Uses a pseudoref derived from a BAM that has not been indel-realigned (e.g. `[PREFIX]_sorted_markdup.bam` or `[PREFIX]_sorted.bam`)
 1. `w#`: Specifies the window size (in bp) to use for calculation of non-overlapping windowed heterozygosity and fixed difference rate (usually a multiple of 1000)
+1. `jointgeno`: Uses a pseudoref derived from the joint genotyping pipeline
 
 ## Use of the pipeline without SLURM (i.e. with GNU Parallel)
 
-This pipeline has recently been adapted for use with GNU Parallel. The only major change in usage that differs with the SLURM method is that you must pass in the ID of the TASK (i.e. the number of the line of the metadata file to use) as the first argument to localArrayCall_v2.sh.
+This pipeline has been adapted for use with GNU Parallel. The only major change in usage that differs with the SLURM method is that you must pass in the ID of the TASK (i.e. the number of the line of the metadata file to use) as the first argument to localArrayCall_v2.sh.
 
-An example `iADMD` call using 8 cores per mapping job for a 32-line metadata file performing at most 4 jobs simultaneously might look like this:
+An example `MAP` call using 8 cores per mapping job for a 32-line metadata file performing at most 4 jobs simultaneously might look like this:
 
-`parallel -j4 --eta '[path to PseudoreferencePipeline]/localArrayCall_v2.sh {1} iADMD example_metadata.tsv 8 2> example_job{1}_iADMD.stderr > example_job{1}_iADMD.stdout' ::: {1..32}`
+`parallel -j4 --eta '[path to PseudoreferencePipeline]/localArrayCall_v2.sh {1} MAP example_metadata.tsv 8 2> MAP_example_job{1}.stderr > MAP_example_job{1}.stdout' ::: {1..32}`
 
 ## Typical errors
+
+1. BAMs are missing @SQ headers and/or are corrupt
+	* This is sometimes due to corrupted index files, which may be due to a race condition when indexing the reference. Please delete the index files (for the BWA pipeline, something like `rm [path to ref].fasta.* [path to ref].dict`), and run `indexDictFai.sh` **once** on the reference **prior** to starting your `iADMD` or `MAP` jobs.
+	* Otherwise, run `samtools quickcheck -vvv [BAM file]` and let me know via a Github issue and/or e-mail
 
 1. GATK RealignerTargetCreator fails
 	* Most often, this is because you forgot to wrap your reference FASTA, so go back and wrap it, run `indexDictFai.sh`, and then stick the name of the wrapped FASTA in your metadata file, and it should work
@@ -211,12 +275,18 @@ An example `iADMD` call using 8 cores per mapping job for a 32-line metadata fil
         * Occasionally, you may get an error about a read in the active region not being found in the BAM. This is typically due to multi-threading bugs in HaplotypeCaller, so try running with a different number of cores, or if you can afford it, run single-threaded. A single-threaded run should be almost guaranteed to fix this problem.
 	* Work in progress, there are plenty
 
+## Extraneous tasks
+
+I've added a `PBMAP` task that maps PacBio data using [NGMLR](https://github.com/philres/ngmlr), but no real special options or configurations. No indexing is required, as the command line for ngmlr includes an option for not writing an index to disk. This task could be quickly expanded to mapping with [minimap2](https://github.com/lh3/minimap2), and in principle also BWA-MEM (although modern best practices seem to indicate NGMLR and minimap2 perform better). No marking of duplicates is performed, and the reads must be input as FASTQ, not as unmapped BAM.
+
 ## Future wish-list
+
+[*] Facilitate joint genotyping (currently supported with some testing for both GATK and BCFtools)
 
 [] Integrate FreeBayes for variant calling and `PSEUDOFASTA`
    At the moment, this is on hold because the `--report-monomorphic` option for reporting invariant sites is *extremely* slow even when parallelized, so testing is prohibitively slow.
 
-[] Facilitate joint genotyping (currently only indirectly supported for both GATK and BCFtools)
-
 [] Separate filtering and incorporation of indels into pseudoreferences
    This is on hold for several reasons: Many tools for downstream analysis of pseudoreferences expect them to be in the same coordinate space which incorporating indels would violate; we haven't done thorough simulations and analysis of error rates in calling indels, so filtering criteria haven't been established. It's not too hard to incorporate into the pipeline though, it just means an extra filtering/selecting step, a possible VCF merging step, and adjusting the consensus call (not sure how GATK FastaAlternateReferenceMaker handles indels though).
+
+[] Support various other common mappers for `MAP` and `STAR`, e.g. Bowtie2, HISAT2, minimap2

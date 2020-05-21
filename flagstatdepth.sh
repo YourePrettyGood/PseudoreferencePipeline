@@ -8,6 +8,7 @@ if [[ $# -eq 0 ]]; then
    printf "Default window size is 100000.\n"
    printf "Window size of 0 indicates genome-wide average.\n"
    printf "Negative window size indicates per-scaffold averages.\n"
+   printf "'cleanup' omits primary analysis functions and instead deletes all non-log intermediate files.\n"
    exit 1
 fi
 #PREFIX: Prefix used for all intermediate and output files of the pipeline
@@ -61,6 +62,28 @@ fi
 SAMPLEBAM="${OUTPUTDIR}${PREFIX}${BAMSUFFIX}"
 FLAGSTATLOG="${OUTPUTDIR}${PREFIX}${TSVSPECIAL}_flagstat.log"
 
+#SPECIAL options may indicate cleanup of intermediate files,
+# but not log files:
+if [[ $SPECIAL =~ "cleanup" ]]; then
+   rm -f ${OUTPUTDIR}${PREFIX}${TSVSPECIAL}_depth_*.tsv
+   echo "Cleanup complete for sample ${PREFIX}"
+   exit 0
+fi
+
+#Check for necessary scripts/programs:
+if [[ ! -x "$(command -v ${SAMTOOLS})" ]]; then
+   echo "SAMtools appears to be missing, could not find at SAMTOOLS=${SAMTOOLS}."
+   exit 18;
+fi
+if [[ ! -x "$(command -v ${NOW})" ]]; then
+   echo "nonOverlappingWindows appears to be missing, could not find at NOW=${NOW}."
+   exit 22;
+fi
+if [[ ! -e "${SCRIPTDIR}/summarizeStat.awk" ]]; then
+   echo "summarizeStat.awk appears to be missing from the installation at ${SCRIPTDIR}."
+   exit 23;
+fi
+
 #Run samtools flagstat on the BAM:
 echo "Running samtools flagstat on ${SAMPLEBAM}"
 echo "${SAMTOOLS} flagstat ${SAMPLEBAM} 2>&1 > ${FLAGSTATLOG}"
@@ -70,7 +93,12 @@ if [[ $FSCODE -ne 0 ]]; then
    echo "samtools flagstat failed for ${PREFIX} on ${SAMPLEBAM} with exit code ${FSCODE}!"
    exit 2
 fi
-if [[ "${WINDOWSIZE}" -eq "0" ]]; then
+if [[ "${SPECIAL}" =~ "no_windows" ]]; then
+#no_windows indicates per-site depth:
+   DEPTHTSV="${OUTPUTDIR}${PREFIX}${TSVSPECIAL}_depth_persite.tsv.gz"
+   SUMMARYCMD="gzip -9 > ${DEPTHTSV}"
+   SUMMARYTYPE="per-site"
+elif [[ "${WINDOWSIZE}" -eq "0" ]]; then
 #Specify window size of 0 for genome-wide depth:
    DEPTHTSV="${OUTPUTDIR}${PREFIX}${TSVSPECIAL}_depth_genomewide.tsv"
    SUMMARYCMD="${SCRIPTDIR}/summarizeStat.awk -v \"genomewide=1\" 2> ${OUTPUTDIR}logs/depth_summarizeStat_${PREFIX}${TSVSPECIAL}.stderr > ${DEPTHTSV}"

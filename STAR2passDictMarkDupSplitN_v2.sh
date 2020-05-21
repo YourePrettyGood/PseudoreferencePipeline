@@ -1,5 +1,25 @@
 #!/bin/bash
 #Read in the command line arguments:
+if [[ $# -eq 0 ]]; then
+   printf "Usage: $0 <prefix> <reference genome> [number of cores] [special options]\n"
+   printf "Prefix is used to standardize intermediate and output file names.\n"
+   printf "Reference genome must be wrapped FASTA with .fai and .dict.\n"
+   printf "Number of cores allocated is 8 by default (match with --cpus-per-task).\n"
+   printf "Special options is a comma-separated list of flags to deviate\n"
+   printf " from default operation.\n"
+   printf "'no_markdup' skips the Picard MarkDuplicates step.\n"
+   printf "'no_splitN' skips the GATK SplitNCigarReads step.\n"
+   printf "'intronMotif' adds the XS tag for reads aligning across canonical\n"
+   printf " splice junctions (nominally for compatibility with Cufflinks and\n"
+   printf " StringTie).\n"
+   printf "'mem_#[mg]' specifies the maximum memory allowed for Java during\n"
+   printf " Picard MarkDuplicates and SplitNCigarReads.\n"
+   printf " (default is 30g for 30 GB).\n"
+   printf " The #[mg] is appended to -Xmx in the java call.\n"
+   printf "'cleanup' omits primary analysis functions and instead deletes all non-log intermediate files.\n"
+   exit 1
+fi
+
 #PREFIX: Prefix used for all intermediate and output files in the
 # pipeline
 PREFIX=$1
@@ -31,6 +51,17 @@ if [[ ! -z "$4" ]]; then
    fi
 fi
 
+#Check if memory for GATK/java is specified:
+#Format of SPECIAL argument is mem_[0-9]+[MGmg]? 
+#The part after the underscore gets used as a suffix to -Xmx
+#Since we're using a regex to capture, this is not an attack vector
+JAVAMEM="30g"
+JAVAMEMRE='(mem)_([0-9]+[MGmg]?)'
+if [[ ${SPECIAL} =~ $JAVAMEMRE ]]; then
+   JAVAMEM="${BASH_REMATCH[2]}"
+fi
+echo "Running java steps with -Xmx${JAVAMEM} for sample ${PREFIX}"
+
 OUTPUTDIR=""
 if [[ ${PREFIX} =~ \/ ]]; then #If the prefix has a path
    OUTPUTDIR="`dirname ${PREFIX}`/"
@@ -39,62 +70,67 @@ fi
 
 mkdir -p ${OUTPUTDIR}logs
 
+#SPECIAL options may indicate cleanup of intermediate files,
+# but not log files:
+if [[ $SPECIAL =~ "cleanup" ]]; then
+   rm -f ${OUTPUTDIR}${PREFIX}_sorted.bam
+   if [[ ! $SPECIAL =~ "no_markdup" ]]; then
+      OUTPUTBAM="${OUTPUTDIR}${PREFIX}_sorted_markdup_splitN.bam"
+      rm -f ${OUTPUTDIR}${PREFIX}_sorted_markdup.bam ${OUTPUTDIR}${PREFIX}_sorted_markdup.bam.bai
+   else
+      OUTPUTBAM="${OUTPUTDIR}${PREFIX}_sorted_splitN.bam"
+   fi
+   if [[ ! $SPECIAL =~ "no_splitN" ]]; then
+      rm -f ${OUTPUTBAM} ${OUTPUTBAM}.bai
+   fi
+   echo "Cleanup complete for sample ${PREFIX}"
+   exit 0
+fi
+
 #Set the paths to the executables:
 SCRIPTDIR=`dirname $0`
 source ${SCRIPTDIR}/pipeline_environment.sh
 
-#Generate index for the reference FASTA:
+#Check for FASTA index of the reference FASTA:
 if [[ ! -e ${REF}.fai ]]; then
-   echo "Generating FASTA index for ${REF}"
-   $SAMTOOLS faidx ${REF} 2>&1 > ${OUTPUTDIR}logs/samtoolsFaidxRef.log
-   FAIDXCODE=$?
-   if [[ $FAIDXCODE -ne 0 ]]; then
-      echo "samtools faidx on ${REF} failed with exit code ${FAIDXCODE}!"
-      exit 2
-   fi
-else
-   echo "Skipping .fai generation for ${REF}"
+   echo "Missing FASTA index of ${REF}, please run indexDictFai.sh"
+   exit 2
 fi
 
-#Generate sequence dictionary for the reference FASTA (used by GATK):
+#Check for sequence dictionary of the reference FASTA (used by GATK):
 REFDICT="${REF%.*}.dict"
 if [[ ! -e ${REFDICT} ]]; then
-   echo "Generating sequence dictionary for ${REF}"
-   java -Xmx30g -jar $PICARD CreateSequenceDictionary REFERENCE=${REF} OUTPUT=${REFDICT} 2>&1 > ${OUTPUTDIR}logs/picardDictRef.log
-   DICTCODE=$?
-   if [[ $DICTCODE -ne 0 ]]; then
-      echo "Picard CreateSequenceDictionary on ${REF} failed with exit code ${DICTCODE}!"
-      exit 3
-   fi
-else
-   echo "Skipping .dict generation for ${REF}"
+   echo "Missing sequence dictionary for ${REF}, please run indexDictFai.sh"
+   exit 3
 fi
+
 #Clear out the STAR temp directory if it exists:
 STARTMP="${OUTPUTDIR}${PREFIX}_STARtmp"
 if [[ -d "${STARTMP}" ]]; then
    rm -rf ${STARTMP}
 fi
 
-#Generate the index for STAR:
+#Check for the index for STAR:
 GENOMEDIR="${REF}_genomeDir"
-if [[ -d "${GENOMEDIR}" ]]; then
-   #rm -rf ${GENOMEDIR}
-   echo "Skipping STAR index generation"
-else
-   mkdir -p ${GENOMEDIR}
-   echo "Generating STAR genome index for ${REF}"
-   $STAR --runThreadN ${NUMPROCS} --runMode genomeGenerate --genomeDir ${GENOMEDIR} --genomeFastaFiles ${REF} --outFileNamePrefix ${OUTPUTDIR}${PREFIX} --outTmpDir ${STARTMP}
-   STARIDXCODE=$?
-   if [[ $STARIDXCODE -ne 0 ]]; then
-      echo "STAR genomeGenerate on ${REF} failed with exit code ${STARIDXCODE}!"
-      exit 4
-   fi
+if [[ ! -d "${GENOMEDIR}" ]]; then
+   echo "Missing STAR index of ${REF}, please run indexDictFai.sh STAR"
+   exit 4
 fi
 
 #Deal with SPECIAL for STAR options, like intronMotif:
 STAROPTIONS=""
 if [[ "${SPECIAL}" =~ "intronMotif" ]]; then
    STAROPTIONS="${STAROPTIONS} --outSAMstrandField intronMotif"
+fi
+
+#Check for necessary scripts/programs:
+if [[ ! -x "$(command -v ${SAMTOOLS})" ]]; then
+   echo "SAMtools appears to be missing, could not find at SAMTOOLS=${SAMTOOLS}."
+   exit 18;
+fi
+if [[ ! -e ${PICARD} ]]; then
+   echo "Picard appears to be missing, could not find at PICARD=${PICARD}."
+   exit 11;
 fi
 
 #Now run STAR 2-pass (on-the-fly), either with gzipped or uncompressed FASTQ files:
@@ -120,7 +156,7 @@ if [[ ${SPECIAL} =~ "no_markdup" ]]; then
 else
    #Mark duplicates using Picard:
    echo "Marking duplicates for ${PREFIX}_sorted.bam"
-   java -Xmx30g -jar $PICARD MarkDuplicates INPUT=${OUTPUTDIR}${PREFIX}_sorted.bam OUTPUT=${OUTPUTDIR}${PREFIX}_sorted_markdup.bam METRICS_FILE=${OUTPUTDIR}${PREFIX}_markdup_metrics.txt 2>&1 > ${OUTPUTDIR}logs/picardMarkDuplicates${PREFIX}.log
+   java -Xmx${JAVAMEM} -jar $PICARD MarkDuplicates INPUT=${OUTPUTDIR}${PREFIX}_sorted.bam OUTPUT=${OUTPUTDIR}${PREFIX}_sorted_markdup.bam METRICS_FILE=${OUTPUTDIR}${PREFIX}_markdup_metrics.txt 2>&1 > ${OUTPUTDIR}logs/picardMarkDuplicates${PREFIX}.log
    MARKDUPCODE=$?
    if [[ $MARKDUPCODE -ne 0 ]]; then
       echo "Picard MarkDuplicates on ${PREFIX}_sorted.bam failed with exit code ${MARKDUPCODE}!"
@@ -140,6 +176,10 @@ fi
 if [[ ${SPECIAL} =~ "no_splitN" ]]; then
    echo "Skipping GATK SplitNCigarReads for sample ${PREFIX} due to special options ${SPECIAL}"
 else
+   if [[ ! -e "${GATK}" ]]; then
+      echo "GATK appears to be missing, could not find at GATK=${GATK}."
+      exit 20;
+   fi
    INPUTBAM="${OUTPUTDIR}${PREFIX}_sorted_markdup.bam"
    OUTPUTBAM="${OUTPUTDIR}${PREFIX}_sorted_markdup_splitN.bam"
    if [[ ${SPECIAL} =~ "no_markdup" ]]; then
@@ -155,7 +195,7 @@ else
    #Clean up the mapping results for use by HaplotypeCaller:
    echo "Cleaning up mapping results for use by GATK HaplotypeCaller"
    echo "using GATK SplitNCigarReads on ${INPUTBAM}"
-   java -jar $GATK -T SplitNCigarReads -R ${REF} -I ${INPUTBAM} -o ${OUTPUTBAM} -rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 -U ALLOW_N_CIGAR_READS 2>&1 > ${OUTPUTDIR}logs/${PREFIX}_GATK_SplitNCigarReads.log
+   java -Xmx${JAVAMEM} -jar $GATK -T SplitNCigarReads -R ${REF} -I ${INPUTBAM} -o ${OUTPUTBAM} -rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 -U ALLOW_N_CIGAR_READS 2>&1 > ${OUTPUTDIR}logs/${PREFIX}_GATK_SplitNCigarReads.log
    SPLITNCODE=$?
    if [[ $SPLITNCODE -ne 0 ]]; then
       echo "GATK SplitNCigarReads on ${PREFIX}_sorted_markdup.bam failed with exit code ${SPLITNCODE}!"

@@ -8,15 +8,24 @@ CALLER="$3"
 # e.g. HC for GATK HaplotypeCaller, MPILEUP for samtools mpileup and bcftools call
 SPECIAL="$4"
 #SPECIAL: Special options indicating input files to use, e.g. no_markdup, no_IR
-FILTERSTR="${@:5}"
+if [[ $SPECIAL =~ 'jointgeno' ]]; then
+   JOINTPREFIX="$5"
+   FILTERSTR="${@:6}"
+else
+   JOINTPREFIX=""
+   if [[ -z "${@:5}" ]]; then
+      FILTERSTR="${@:4}"
+   else
+      FILTERSTR="${@:5}"
+   fi
+fi
 echo "${FILTERSTR}"
+#JOINTPREFIX: Prefix for joint genotyping VCF, only passed in if SPECIAL
+# contains 'jointgeno'
 #FILTERSTR: Expression string to use for filtering sites -- JEXL string
 # used for -select option in GATK SelectVariants for masked sites, or an
 # expression string for use with bcftools filter --include
 #If SPECIAL is empty, bash won't parse it as $4, instead FILTERSTR will be $4
-if [[ -z "$FILTERSTR" ]]; then
-   FILTERSTR="${@:4}"
-fi
 
 #Check if we want to mask positives or all sites around indels:
 INDELWINDOW=""
@@ -34,6 +43,12 @@ if [[ ${SAMPLE} =~ \/ ]]; then #If the prefix has a path
 fi
 
 mkdir -p ${OUTPUTDIR}logs
+
+JOINTOUTPUTDIR=""
+if [[ ${JOINTPREFIX} =~ \/ ]]; then #If the joint VCF prefix has a path
+   JOINTOUTPUTDIR="`dirname ${JOINTPREFIX}`/"
+   JOINTPREFIX=`basename ${JOINTPREFIX}`
+fi
 
 NOMARKDUP=""
 REALIGNED=""
@@ -53,9 +68,21 @@ else
    exit 2
 fi
 
-OUTPREFIX="${SAMPLE}${NOMARKDUP}${REALIGNED}_${CALLER}"
+if [[ -z "${JOINTPREFIX}" ]]; then
+   OUTPREFIX="${SAMPLE}${NOMARKDUP}${REALIGNED}_${CALLER}"
+   INPUTVCF="${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}${VCFSUFFIX}"
+else
+   OUTPREFIX="${SAMPLE}${NOMARKDUP}${REALIGNED}_${CALLER}_joint"
+#   echo "VCFSUFFIX is ${VCFSUFFIX}"
+   if [[ ${VCFSUFFIX} =~ gz$ ]]; then
+      VCFSUFFIX=".vcf.gz"
+   else
+      VCFSUFFIX=".vcf"
+   fi
+   INPUTVCF="${JOINTOUTPUTDIR}${JOINTPREFIX}${NOMARKDUP}${REALIGNED}_${CALLER}_joint${VCFSUFFIX}"
+   echo "Using jointly-genotyped VCF ${INPUTVCF} with suffix ${VCFSUFFIX}"
+fi
 
-INPUTVCF="${OUTPUTDIR}${SAMPLE}${NOMARKDUP}${REALIGNED}${VCFSUFFIX}"
 if [[ ! -e "${INPUTVCF}" ]]; then
    if [[ $CALLER =~ "HC" && -e "${INPUTVCF}.gz" ]]; then
       INPUTVCF="${INPUTVCF}.gz"
@@ -65,21 +92,64 @@ if [[ ! -e "${INPUTVCF}" ]]; then
    fi
 fi
 
+LOGPREFIX="${OUTPUTDIR}logs/${OUTPREFIX}"
+INTPREFIX="${OUTPUTDIR}${OUTPREFIX}"
+
+#SPECIAL options may indicate cleanup of intermediate files,
+# but not log files:
+if [[ $SPECIAL =~ "cleanup" ]]; then
+   if [[ $CALLER =~ "HC" ]]; then
+      INDELMASKINTERVALS="${INTPREFIX}_indelmaskintervals.bed"
+      INDELMASKVCF="${INTPREFIX}_indelmask_${INDELWINDOW}.vcf"
+      UPDATEVCF="${INTPREFIX}_sitesToUse.vcf"
+      MASKINGBED="${INTPREFIX}_sitesToMask.bed"
+      UPDATEFASTA="${INTPREFIX}_wonky_pseudoref.fasta"
+      RENAMEDFASTA="${INTPREFIX}_wonky_pseudoref_renamed.fasta"
+      PSEUDOREF="${INTPREFIX}_final_pseudoref.fasta"
+      rm -f ${UPDATEVCF} ${MASKINGBED} ${UPDATEFASTA} ${RENAMEDFASTA} ${PSEUDOREF}
+      if [[ ! -z "${INDELWINDOW}" ]]; then
+         rm -f ${INDELMASKINTERVALS}
+         if [[ "${INDELMASKTYPE}" == "indelmaskp" ]]; then
+            rm -f ${INDELMASKVCF}
+         fi
+      fi
+   elif [[ $CALLER =~ "MPILEUP" ]]; then
+      UPDATEVCF="${INTPREFIX}_filtered.vcf.gz"
+      SITESTOUSEVCF="${INTPREFIX}_sitesToUse.vcf.gz"
+      MASKINGBED="${INTPREFIX}_sitesToMask.bed"
+      INDELMASKINTERVALS="${INTPREFIX}_indelmaskintervals.bed"
+      PSEUDOREF="${INTPREFIX}_final_pseudoref.fasta"
+      rm -f ${UPDATEVCF} ${MASKINGBED} ${SITESTOUSEVCF} ${SITESTOUSEVCF}.tbi ${PSEUDOREF}
+      if [[ "${INDELMASKTYPE}" == "indelmask" ]]; then
+         rm -f ${INDELMASKINTERVALS}
+      fi
+   fi
+   echo "CLeanup complete for sample ${PREFIX}"
+   exit 0
+fi
+
 #Load the appropriate path variables for the filtering and masking tools:
 SCRIPTDIR=`dirname $0`
 source ${SCRIPTDIR}/pipeline_environment.sh
 
-LOGPREFIX="${OUTPUTDIR}logs/${OUTPREFIX}"
-INTPREFIX="${OUTPUTDIR}${OUTPREFIX}"
+#Check that the necessary scripts/tools exist (excluding awk and java):
+if [[ ! -x "$(command -v ${BEDTOOLS})" ]]; then
+   echo "BEDtools appears to be missing, could not find at BEDTOOLS=${BEDTOOLS}."
+   exit 21;
+fi
 
 if [[ $CALLER =~ "HC" ]]; then
+   if [[ ! -e "${GATK}" ]]; then
+      echo "GATK appears to be missing, could not find at GATK=${GATK}."
+      exit 20;
+   fi
    #If indelmask has been specified, identify positives near indels
    INDELMASK=""
    if [[ ! -z "${INDELWINDOW}" ]]; then
       #Identify indel positions, and output their windowed regions:
       echo "Identifying indel positions and outputting windowed flanking regions for sample ${SAMPLE}"
       INDELMASKINTERVALS="${INTPREFIX}_indelmaskintervals.bed"
-      java -jar ${GATK} -T SelectVariants -R ${REFERENCE} -V ${INPUTVCF} -selectType INDEL 2> ${LOGPREFIX}_GATKSelectVariants_indels.stderr | ${SCRIPTDIR}/GATK_indel_windows.awk - ${INDELWINDOW} | sort -k1,1 -k2,2n -k3,3n | bedtools merge -i - 2> ${LOGPREFIX}_bedtoolsMergeIndelMask.stderr > ${INDELMASKINTERVALS}
+      java -jar ${GATK} -T SelectVariants -R ${REFERENCE} -V ${INPUTVCF} -selectType INDEL -sn ${SAMPLE} 2> ${LOGPREFIX}_GATKSelectVariants_indels.stderr | ${SCRIPTDIR}/GATK_indel_windows.awk - ${INDELWINDOW} | sort -k1,1 -k2,2n -k3,3n | bedtools merge -i - 2> ${LOGPREFIX}_bedtoolsMergeIndelMask.stderr > ${INDELMASKINTERVALS}
       INDELINTCODE=$?
       if [[ $INDELINTCODE -ne 0 ]]; then
          echo "GATK SelectVariants for indels failed for sample ${SAMPLE} with exit code ${INDELINTCODE}"
@@ -89,7 +159,7 @@ if [[ $CALLER =~ "HC" ]]; then
          #Now extract positives within these intervals:
          echo "Extracting variant calls within flanking regions of indels for sample ${SAMPLE}"
          INDELMASKVCF="${INTPREFIX}_indelmask_${INDELWINDOW}.vcf"
-         java -jar ${GATK} -T SelectVariants -R ${REFERENCE} -V ${INPUTVCF} -o ${INDELMASKVCF} --intervals ${INDELMASKINTERVALS} -selectType SNP 2> ${LOGPREFIX}_GATKSelectVariants_indelmask_${INDELWINDOW}.stderr > ${LOGPREFIX}_GATKSelectVariants_indelmask_${INDELWINDOW}.stdout
+         java -jar ${GATK} -T SelectVariants -R ${REFERENCE} -V ${INPUTVCF} -o ${INDELMASKVCF} --intervals ${INDELMASKINTERVALS} -selectType SNP -sn ${SAMPLE} 2> ${LOGPREFIX}_GATKSelectVariants_indelmask_${INDELWINDOW}.stderr > ${LOGPREFIX}_GATKSelectVariants_indelmask_${INDELWINDOW}.stdout
          INDELMASKCODE=$?
          if [[ $INDELMASKCODE -ne 0 ]]; then
             echo "GATK SelectVariants for SNPs near indels failed for sample ${SAMPLE} with exit code ${INDELMASKCODE}"
@@ -103,7 +173,7 @@ if [[ $CALLER =~ "HC" ]]; then
    #They lack INFO/DP, and GATK JEXL doesn't handle FORMAT/DP (correctly?)
    echo "Extracting SNPs and invariant sites passing the filters for sample ${SAMPLE}"
    UPDATEVCF="${INTPREFIX}_sitesToUse.vcf"
-   java -jar ${GATK} -T SelectVariants -R ${REFERENCE} -V ${INPUTVCF} -o ${UPDATEVCF} ${INDELMASK} -selectType SNP -selectType NO_VARIATION -select "${FILTERSTR}" -invertSelect 2> ${LOGPREFIX}_GATKSelectVariants_updating.stderr > ${LOGPREFIX}_GATKSelectVariants_updating.stdout
+   java -jar ${GATK} -T SelectVariants -R ${REFERENCE} -V ${INPUTVCF} -o ${UPDATEVCF} ${INDELMASK} -selectType SNP -selectType NO_VARIATION -select "${FILTERSTR}" -invertSelect -sn ${SAMPLE} 2> ${LOGPREFIX}_GATKSelectVariants_updating.stderr > ${LOGPREFIX}_GATKSelectVariants_updating.stdout
    SNPUPDCODE=$?
    if [[ $SNPUPDCODE -ne 0 ]]; then
       echo "GATK SelectVariants for updated sites on ${INPUTVCF} failed with exit code ${SNPUPDCODE}"
@@ -150,6 +220,14 @@ if [[ $CALLER =~ "HC" ]]; then
       exit 9
    fi
 elif [[ $CALLER =~ "MPILEUP" ]]; then
+   if [[ ! -x "$(command -v ${BCFTOOLS})" ]]; then
+      echo "BCFtools appears to be missing, could not find at BCFTOOLS=${BCFTOOLS}."
+      exit 17;
+   fi
+   if [[ ! -x "$(command -v ${TABIX})" ]]; then
+      echo "Tabix appears to be missing, could not find at TABIX=${TABIX}."
+      exit 19;
+   fi
    UPDATEVCF="${INTPREFIX}_filtered.vcf.gz"
    SITESTOUSEVCF="${INTPREFIX}_sitesToUse.vcf.gz"
    MASKINGBED="${INTPREFIX}_sitesToMask.bed"
@@ -162,7 +240,7 @@ elif [[ $CALLER =~ "MPILEUP" ]]; then
    fi
    #Filter sites using the filtering expression:
    echo "Applying filters to the input VCF for sample ${SAMPLE}"
-   ${BCFTOOLS} filter -mx -S. -Oz -sFAIL -e "${FILTERSTR}" ${INDELMASK} -o ${UPDATEVCF} ${INPUTVCF} 2> ${LOGPREFIX}_bcftoolsfilter.stderr > ${LOGPREFIX}_bcftoolsfilter.stdout
+   ${BCFTOOLS} view -Ou -s ${SAMPLE} ${INPUTVCF} 2> ${LOGPREFIX}_bcftoolsviewForFilter.stderr | ${BCFTOOLS} filter -mx -S. -Oz -sFAIL -e "${FILTERSTR}" ${INDELMASK} -o ${UPDATEVCF} - 2> ${LOGPREFIX}_bcftoolsfilter.stderr > ${LOGPREFIX}_bcftoolsfilter.stdout
    FILTERCODE=$?
    if [[ $FILTERCODE -ne 0 ]]; then
       echo "bcftools filter for sample ${SAMPLE} failed with exit code ${FILTERCODE}"
@@ -172,15 +250,15 @@ elif [[ $CALLER =~ "MPILEUP" ]]; then
    echo "Constructing BED of filtered variant and invariant sites for sample ${SAMPLE}"
    if [[ "${INDELMASKTYPE}" == "indelmask" ]]; then
       echo "Merging in indel masking windows as well"
-      ${BCFTOOLS} view -v indels -H -Ov ${INPUTVCF} 2> ${LOGPREFIX}_bcftoolsViewIndels.stderr | ${SCRIPTDIR}/GATK_indel_windows.awk - ${INDELWINDOW} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - 2> ${LOGPREFIX}_bedtoolsMergeIndelWindows.stderr > ${INDELMASKINTERVALS}
+      ${BCFTOOLS} view -v indels -H -s ${SAMPLE} -Ov ${INPUTVCF} 2> ${LOGPREFIX}_bcftoolsViewIndels.stderr | ${SCRIPTDIR}/GATK_indel_windows.awk - ${INDELWINDOW} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - 2> ${LOGPREFIX}_bedtoolsMergeIndelWindows.stderr > ${INDELMASKINTERVALS}
       INDELINTCODE=$?
       if [[ $INDELINTCODE -ne 0 ]]; then
          echo "bcftools view for indels, awk for making windows, sort, or bedtools merge for sample ${SAMPLE} failed with exit code ${INDELINTCODE}"
          exit 16
       fi
-      ${BCFTOOLS} query -i 'FILTER=="PASS" && (TYPE=="SNP" || TYPE=="REF")' -f '%CHROM\t%POS0\t%POS\n' ${UPDATEVCF} 2> ${LOGPREFIX}_bcftoolsqueryused.stderr | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai) 2> ${LOGPREFIX}_bedtoolscomplement.stderr | cat - ${INDELMASKINTERVALS} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - > ${MASKINGBED}
+      ${BCFTOOLS} query -i 'FILTER=="PASS" && (TYPE=="SNP" || TYPE=="REF")' -f '%CHROM\t%POS0\t%POS\n' -s ${SAMPLE} ${UPDATEVCF} 2> ${LOGPREFIX}_bcftoolsqueryused.stderr | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai) 2> ${LOGPREFIX}_bedtoolscomplement.stderr | cat - ${INDELMASKINTERVALS} | sort -k1,1 -k2,2n -k3,3n | ${BEDTOOLS} merge -i - > ${MASKINGBED}
    else
-      ${BCFTOOLS} query -i 'FILTER=="PASS" && (TYPE=="SNP" || TYPE=="REF")' -f '%CHROM\t%POS0\t%POS\n' ${UPDATEVCF} 2> ${LOGPREFIX}_bcftoolsqueryused.stderr | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai) 2> ${LOGPREFIX}_bedtoolscomplement.stderr > ${MASKINGBED}
+      ${BCFTOOLS} query -i 'FILTER=="PASS" && (TYPE=="SNP" || TYPE=="REF")' -f '%CHROM\t%POS0\t%POS\n' -s ${SAMPLE} ${UPDATEVCF} 2> ${LOGPREFIX}_bcftoolsqueryused.stderr | ${BEDTOOLS} complement -i - -g <(cut -f1,2 ${REFERENCE}.fai) 2> ${LOGPREFIX}_bedtoolscomplement.stderr > ${MASKINGBED}
    fi
    MASKBEDCODE=$?
    if [[ $MASKBEDCODE -ne 0 ]]; then
@@ -190,7 +268,7 @@ elif [[ $CALLER =~ "MPILEUP" ]]; then
    #Extract sites to use:
    #We skip REF sites, since they don't need updating, and that makes the VCF smaller
    echo "Extracting variant sites that pass the filters for updating for sample ${SAMPLE}"
-   ${BCFTOOLS} view -i 'FILTER=="PASS" && TYPE=="SNP"' -Oz -o ${SITESTOUSEVCF} ${UPDATEVCF} 2> ${LOGPREFIX}_bcftoolsviewsitestouse.stderr > ${LOGPREFIX}_bcftoolsviewsitestouse.stdout
+   ${BCFTOOLS} view -i 'FILTER=="PASS" && TYPE=="SNP"' -Oz -o ${SITESTOUSEVCF} -s ${SAMPLE} ${UPDATEVCF} 2> ${LOGPREFIX}_bcftoolsviewsitestouse.stderr > ${LOGPREFIX}_bcftoolsviewsitestouse.stdout
    SITESTOUSECODE=$?
    if [[ $SITESTOUSECODE -ne 0 ]]; then
       echo "bcftools view to extract used sites for sample ${SAMPLE} failed with error code ${SITESTOUSECODE}"

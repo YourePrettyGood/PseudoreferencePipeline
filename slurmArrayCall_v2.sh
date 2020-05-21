@@ -1,5 +1,8 @@
 #!/bin/bash
 
+#For the future, we may replace this script entirely by:
+#${SCRIPTDIR}/localArrayCall_v2.sh ${SLURM_ARRAY_TASK_ID} "$@"
+
 #This script uses a metadata file and $SLURM_ARRAY_TASK_ID to
 #run a pipeline job when submitted with sbatch -a
 
@@ -7,8 +10,9 @@
 #1) job type (i.e. iADMD, IR, HC, VCFINSNP, PSEUDOFASTA, STAR, IRRNA, MPILEUP, MERGE, POLYDIV, or DEPTH)
 #2) metadata file (TSV comprised of prefix, ref, read file(s))
 # 2a) metadata file for MERGE is different: (merged BAM name, component BAM list)
+# 2b) metadata file for PSEUDOFASTA is different: (prefix, ref, VCF exclusive filter criteria)
 #3) Optional override of # cores used
-#4) special parameters (e.g. no_markdup, misencoded, "Alisa_v9 5")
+#4) special parameters (e.g. no_markdup, misencoded, "Alisa_v9 5", etc.)
 
 #Note: SLURM submission parameters are specified in the sbatch
 # call to this script (e.g. --mem, -N 1, --ntasks-per-node=1,
@@ -24,6 +28,8 @@ if [[ ! -z "$3" ]]; then
    CORES=" $3"
 fi
 SPECIAL=$4
+
+echo "slurmArrayCall_v2.sh may be deprecated in the future, so please start using localArrayCall_v2.sh"
 
 WHICHSAMPLE=1
 while read -r -a metadatafields
@@ -47,7 +53,7 @@ while read -r -a metadatafields
             echo "Reference ${REF} does not exist! Did you make a typo?"
             exit 5;
          fi
-         if [[ $JOBTYPE =~ "iADMD" || $JOBTYPE =~ "STAR" ]]; then
+         if [[ $JOBTYPE =~ "iADMD" || $JOBTYPE =~ "MAP" || $JOBTYPE =~ "STAR" ]]; then
             if [[ ! -z "${metadatafields[3]}" ]]; then
                READS="${metadatafields[2]} ${metadatafields[3]}"
                if [[ ! -e "${metadatafields[3]}" ]]; then
@@ -73,7 +79,7 @@ fi
 
 SCRIPTDIR=`dirname $0`
 
-if [[ $JOBTYPE =~ "iADMD" ]]; then
+if [[ $JOBTYPE =~ "iADMD" || $JOBTYPE =~ "MAP" ]]; then
    #Params: PREFIX REF READS CORES SPECIAL
    CMD="${SCRIPTDIR}/indexAlignDictMarkDup_v2.sh ${PREFIX} ${REF} ${READS}${CORES} ${SPECIAL}"
 elif [[ $JOBTYPE =~ "STAR" ]]; then
@@ -95,6 +101,7 @@ elif [[ $JOBTYPE =~ "HC" ]]; then
    CMD="${SCRIPTDIR}/HaplotypeCaller.sh ${PREFIX} ${REF}${CORES} ${SPECIAL}"
 elif [[ $JOBTYPE =~ "VCFINSNP" ]]; then
    #Params: PREFIX REF SCRIPT MINDEPTH
+   echo "Warning: VCFINSNP task is deprecated"
    CMD="${SCRIPTDIR}/vcf_to_insnp.sh ${PREFIX} ${REF} ${SPECIAL}"
 elif [[ $JOBTYPE =~ "PSEUDOFASTA" ]]; then
    #Params: PREFIX REF CALLER SPECIAL FILTERSTR
