@@ -22,15 +22,18 @@
 PIPELINEDIR="[Path to the Pseudoreference Pipeline]/PseudoreferencePipeline"
 
 #Possible JOBTYPEs:
-#iADMD = Align reads to a wrapped reference, sort, and mark duplicates
+#MAP = Align reads to a wrapped reference, sort, and mark duplicates
 #STAR = Align RNAseq reads to a wrapped reference, sort, mark duplicates, and
 #       split alignments across introns
-#IR = Realign reads near indels using GATK IndelRealigner -- requisite before HC
+#IR = Realign reads near indels using GATK IndelRealigner -- do this before
+#     HC and MPILEUP
+#IRRNA = Perform indel realignment (a la IR) on BAM derived from STAR
 #HC = Run GATK HaplotypeCaller and perform single-sample GenotypeGVCFs to
 #     output one VCF record per base in the genome
-#VCFINSNP = Filter the VCF, masking bases where depth or other factors are
-#           inadequate, converting homozygous alt calls to the alt base, and
-#           converting heterozygous calls to the degenerate IUPAC base
+#MPILEUP = Run BCFtools to perform single-sample variant calling
+#PSEUDOFASTA = Filter the VCF, masking bases where indicated by filtering
+#              criteria, and updating the reference with genotypes at sites
+#              passing these criteria
 JOBTYPE="IR"
 
 #A tab-separated-value file containing one line per sample you want to run
@@ -40,4 +43,14 @@ JOBTYPE="IR"
 #The fourth column is the path to the second read file (if paired-end)
 METADATA="Example_metadata.tsv"
 
-${PIPELINEDIR}/slurmArrayCall_v2.sh ${JOBTYPE} ${METADATA}
+#Match this to the value you used for --cpus-per-task, which should be
+# 1 for IR:
+NUM_THREADS=1
+
+#Special options in case you have particular needs, like:
+#mem_#g: Set the maximum memory allowed for Java during GATK calls
+#misencoded: Adjust the quality scores from PHRED+64 to PHRED+33
+#            since GATK doesn't like PHRED+33
+SPECIAL=""
+
+${PIPELINEDIR}/localArrayCall_v2.sh ${SLURM_ARRAY_TASK_ID} ${JOBTYPE} ${METADATA} ${NUM_THREADS} ${SPECIAL}

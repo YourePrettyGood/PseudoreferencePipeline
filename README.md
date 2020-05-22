@@ -1,29 +1,73 @@
 # PseudoreferencePipeline
+
 Pipeline for alignment, variant calling, and generation of pseudoreference FASTAs from Illumina data (DNA- or RNAseq)
 
 The pipeline was originally written for a SLURM cluster, but has been adapted for use with GNU parallel, and can be adapted for any cluster job engine that provides an integer environment variable indicating the task ID in a task array.  For SLURM, this is $SLURM_ARRAY_TASK_ID, for SGE this is $SGE_TASK_ID, for PBS this is $PBS_ARRAYID, for LSF this is $LSB_JOBINDEX.  The pipeline has only been officially tested with SLURM and on a standalone computer, so please let me know if you have success (or problems) running it with other job engines!
 
 ## Core Dependencies
-1. BWA (can be obtained via `git clone https://github.com/lh3/bwa --recursive`)
+
+1. BWA (can be obtained via `git clone https://github.com/lh3/bwa --recursive`, must support `bwa mem`)
 1. STAR (can be obtained via `git clone https://github.com/alexdobin/STAR --recursive`)
 1. Samtools (mainly used with versions 1.0+, unknown compatibility below that)
 1. HTSlib (a dependency of Samtools, so usually the version should match that of Samtools)
-1. BCFtools (for variant calling, must be used with versions 1.7+)
+1. BCFtools (for variant calling, must be used with versions 1.7+ for `PSEUDOFASTA` task)
 1. Picard (can be obtained via `git clone https://github.com/broadinstitute/picard --recursive`)
-1. GATK (mainly tested with 3.4, and IR and HC tasks should work with newer)
+1. GATK (mainly tested with 3.4, and IR and HC tasks should work with other version 3, but not 4)
 1. Unix tools (i.e. bash, GNU awk, GNU sort)
 
 ## Optional dependency (if a job engine is not an option for you)
+
 1. GNU Parallel (if a job engine is not an option for you)
 
-## Optional dependency (for PSEUDOFASTA task)
+## Dependency for PSEUDOFASTA task
+
 1. BEDtools (tested with 2.23.0+, should work with 2.3.0+)
 
+## Installation
+
+The scripts in this pipeline are effectively standalone, so the major installation steps are:
+
+1. Install necessary dependencies (and remember the paths to their executables and jars)
+1. Edit `pipeline_environment.sh` with the absolute paths to each of these executables and jars
+
+In particular, the following variables should be defined in your `pipeline_environment.sh`:
+
+For DNA-seq mapping (`MAP` task, also `DEPTH` task):
+1. BWA (point to the `bwa` executable)
+1. SAMTOOLS (point to the `samtools` executable)
+1. PICARD (point to the `picard.jar` file)
+(Will add BT2, BT2B, and MM2 for `bowtie2`, `bowtie2-build`, and `minimap2` in the future)
+
+For RNA-seq mapping (`STAR` task):
+1. STAR (point to the `STAR` executable)
+(Will add HS2 and HS2B for `hisat2` and `hisat2-build` in the future)
+
+For indel realignment and GATK variant calling (both DNA-seq and RNA-seq) (`IR`, `IRRNA`, and `HC` tasks):
+1. GATK (point to the `GenomeAnalysisTK.jar` file from GATK 3.x)
+
+For BCFtools variant calling (`MPILEUP` task):
+1. BCFTOOLS (point to the `bcftools` executable)
+1. TABIX (point to the `tabix` executable)
+
+For variant filtering and site masking (`PSEUDOFASTA` task):
+1. BEDTOOLS (point to the `bedtools` executable)
+
+For calculating heterozygosity and fixed difference rates from pseudoreferences (`POLYDIV` task):
+1. LPDS (point to the `listPolyDivSites` executable from [RandomScripts](YourePrettyGood/RandomScripts))
+1. NOW (point to the `nonOverlappingWindows` executable from [RandomScripts](YourePrettyGood/RandomScripts))
+
+For PacBio read mapping (`PBMAP` task):
+1. NGMLR (point to the `ngmlr` executable)
+(Will add MM2 for `minimap2` in the future)
+
 ## Works in progress
+
 1. Integration of FreeBayes (depends on GNU Parallel and a bit of fancy vcflib path-work)
 1. Integration of other mappers (bowtie2, minimap2, HISAT2)
+1. Compatibility with GATK 4
 
 ## Usage
+
 This pipeline semi-automates the process of alignment and variant calling for both DNAseq and RNAseq datasets.
 The modular design is such that you can diagnose problems occurring at most steps by looking at that module's log.  We also take advantage of SLURM task arrays in order to make alignment and variant calling among many samples paralellized across a cluster.
 
@@ -49,7 +93,15 @@ The RNAseq pipeline involves the following tasks in sequence:
 **It is CRITICALLY important that your reference genome FASTA is line-wrapped for usage with GATK.**
 You can use something like the `fasta_formatter` program of the 
 [FASTX Toolkit](http://hannonlab.cshl.edu/fastx_toolkit/)
-to wrap your reference genome.
+to wrap your reference genome. Alternatively, there's `reformat.sh` from Brian Bushnell's 
+[BBTools](https://jgi.doe.gov/data-and-tools/bbtools/)
+among other similar tools. Usage for both:
+
+`fasta_formatter -i [original reference FASTA] -w60 -o [wrapped reference FASTA]`
+
+or
+
+`reformat.sh in=[original reference FASTA] -out=[wrapped reference FASTA] fastawrap=60`
 
 Once wrapped, then you can simply call:
 `[path to PseudoreferencePipeline]/indexDictFai.sh [wrapped FASTA]`
@@ -57,6 +109,7 @@ Once wrapped, then you can simply call:
 This will index your reference genome for use with BWA by default, create a sequence dictionary as used by GATK, and create a FASTA index (.fai file).
 
 If you're not using BWA for mapping, the full usage for `indexDictFai.sh` is:
+
 `[path to PseudoreferencePipeline]/indexDictFai.sh [wrapped FASTA] [mapper] [annotation]`
 
 Values for `[mapper]` with tested support include `BWA` and `STAR`. Other untested values include `BT2` (bowtie2), `MM2` (minimap2), and `HISAT2` (HISAT2), however these mappers haven't been implemented in the `MAP`, `PBMAP`, and `STAR` tasks yet.
@@ -65,11 +118,35 @@ The `[annotation]` option is currently untested, but intended for future support
 
 Once your reference genome(s) are indexed, you can proceed with the main pipeline.
 
+## Support for cluster job engines (SLURM, SGE, LSF, PBS, etc.):
+
+The pipeline was originally developed for SLURM (hence `slurmArrayCall_v2.sh`), but generically supports any job engine that supports job arrays and an environment variable containing an integer representing the task number in the array. The tasks within the array should be numbered starting at 1, since their task ID corresponds to the line of the metadata file containing that sample.
+
+For SLURM, the general form for any pipeline calls is:
+
+`[path to PseudoreferencePipeline]/localArrayCall_v2.sh ${SLURM_ARRAY_TASK_ID} [TASK] [metadata file path] [number of threads] [special options]`
+
+Be sure to specify `-a 1-[number of samples]` in your `sbatch` call for this to work. For example, for 16 lines in your metadata file, use `-a 1-16`.
+
+Thanks to Clair Han, the pipeline has also been tested on LSF. The general form for LSF is:
+
+`[path to PseudoreferencePipeline]/localArrayCall_v2.sh ${LSB_JOBINDEX} [TASK] [metadata file path] [number of threads] [special options]`
+
+Be sure to specify `-J jobname[1-[number of samples]]` in your `bsub` call for this to work. For example, for 16 lines in your metadata file, use `-J myjob[1-16]`.
+
+If anyone else would be willing to test the pipeline on their own cluster using a different job engine, please let me know (e.g. with a Github issue) so we can add support here!
+
+## Use of the pipeline on a single machine (i.e. with GNU Parallel):
+
+This pipeline has been adapted for use with GNU Parallel via the generic specification of task ID to `localArrayCall_v2.sh`.
+
+An example `MAP` call using 8 cores per mapping job for a 32-line metadata file performing at most 4 jobs simultaneously might look like this:
+
+`parallel -j4 --eta '[path to PseudoreferencePipeline]/localArrayCall_v2.sh {1} MAP example_metadata.tsv 8 2> MAP_example_job{1}.stderr > MAP_example_job{1}.stdout' ::: {1..32}`
+
 ## How to run the parallel parts of the PseudoreferencePipeline:
 
-The main wrapper workhorse is `slurmArrayCall_v2.sh`, which gets called by your SBATCH script, and performs the specified job on a sample specified by a line in a metadata TSV file.
-
-Note: In the case when you don't have SLURM available, you can use localArrayCall_v2.sh in a call to GNU Parallel (see the end of this README for details). Hypothetically, localArrayCall_v2.sh could work for array submissions for any job engine, including SLURM, as long as an environment variable is available to indicate the current task number (like SLURM_ARRAY_TASK_ID for SLURM).  However, only GNU parallel has been tested with localArrayCall_v2.sh. In fact, I'll be updating `slurmArrayCall_v2.sh` such that it's simply a wrapper for `localArrayCall_v2.sh` in the near future.
+The main wrapper workhorse is `localArrayCall_v2.sh`, which gets called by your SBATCH script, and performs the specified job on a sample specified by a line in a metadata TSV file.
 
 Take a look at the `SBATCH_template_*.sbatch` files for examples of how to make your SBATCH submission scripts to run this pipeline.
 
@@ -201,7 +278,7 @@ Several of the jobtypes/tasks have special options available to cope with variat
 
 `IRRNA`:
 1. `mem_#[mg]`: Set the maximum heap size for Java (during GATK calls) to #[mg], e.g. 30g for 30 GB (the default) would be mem_30g
-1. `misencoded`: Only use this option if you skipped the IR step, and have PHRED+64 encoded FASTQ files
+1. `misencoded`: FASTQ files from older Illumina sequencers have quality scores encoded as PHRED+64, and this flag converts them to PHRED+33, the standard
 1. `filter_mismatching_base_and_quals`: This option drops reads where the length of the sequence and quality scores differ
 1. `filter_bases_not_stored`: This option drops reads of length 0 (in case your FASTQ gets mangled during adapter or quality trimming)
 
@@ -252,14 +329,6 @@ Also note that the `#` for `indelmask_#` must be a positive integer (so may not 
 1. `w#`: Specifies the window size (in bp) to use for calculation of non-overlapping windowed heterozygosity and fixed difference rate (usually a multiple of 1000)
 1. `jointgeno`: Uses a pseudoref derived from the joint genotyping pipeline
 
-## Use of the pipeline without SLURM (i.e. with GNU Parallel)
-
-This pipeline has been adapted for use with GNU Parallel. The only major change in usage that differs with the SLURM method is that you must pass in the ID of the TASK (i.e. the number of the line of the metadata file to use) as the first argument to localArrayCall_v2.sh.
-
-An example `MAP` call using 8 cores per mapping job for a 32-line metadata file performing at most 4 jobs simultaneously might look like this:
-
-`parallel -j4 --eta '[path to PseudoreferencePipeline]/localArrayCall_v2.sh {1} MAP example_metadata.tsv 8 2> MAP_example_job{1}.stderr > MAP_example_job{1}.stdout' ::: {1..32}`
-
 ## Typical errors
 
 1. BAMs are missing @SQ headers and/or are corrupt
@@ -270,6 +339,7 @@ An example `MAP` call using 8 cores per mapping job for a 32-line metadata file 
 	* Most often, this is because you forgot to wrap your reference FASTA, so go back and wrap it, run `indexDictFai.sh`, and then stick the name of the wrapped FASTA in your metadata file, and it should work
 	* Alternatively, this may be due to your FASTQ having PHRED+64 encoded quality scores.  If this is the case, rerun `IR` with the `misencoded` option
 	* If the error has something to do with zero-length read stored in the BAM, you may have trimmed your reads in such a way as to produce 0-length reads (and not throw them out)
+	* If GATK errors saying "Could not find walker with name: RealignerTargetCreator", then you need to put the path to Java 8 in your `PATH` environment variable, as you are probably using Java 11 or newer. Thanks to Clair Han for reporting and resolving this issue.
 
 1. GATK HaplotypeCaller 
         * Occasionally, you may get an error about a read in the active region not being found in the BAM. This is typically due to multi-threading bugs in HaplotypeCaller, so try running with a different number of cores, or if you can afford it, run single-threaded. A single-threaded run should be almost guaranteed to fix this problem.
@@ -290,3 +360,7 @@ I've added a `PBMAP` task that maps PacBio data using [NGMLR](https://github.com
    This is on hold for several reasons: Many tools for downstream analysis of pseudoreferences expect them to be in the same coordinate space which incorporating indels would violate; we haven't done thorough simulations and analysis of error rates in calling indels, so filtering criteria haven't been established. It's not too hard to incorporate into the pipeline though, it just means an extra filtering/selecting step, a possible VCF merging step, and adjusting the consensus call (not sure how GATK FastaAlternateReferenceMaker handles indels though).
 
 [] Support various other common mappers for `MAP` and `STAR`, e.g. Bowtie2, HISAT2, minimap2
+
+[] Add compatibility with GATK 4
+
+[] Add support for parallelizing further by genomic regions (not easy)

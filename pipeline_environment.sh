@@ -12,22 +12,30 @@
 #For PSEUDOFASTA task, also depends on:
 #BEDtools (can obtain via `git clone https://github.com/arq5x/bedtools2 --recursive`)
 
-export BWA="[Path to BWA]/bwa"
-export STAR="[Path to STAR]/STAR"
-export SAMTOOLS="[Path to Samtools]/samtools"
-export BCFTOOLS="[Path to BCFtools]/bcftools"
-export TABIX="[Path to Tabix]/tabix"
-export PICARD="[Path to Picard]/picard.jar"
-export GATK="[Path to GATK]/GenomeAnalysisTK.jar"
+export BWA="/usr/local/bin/bwa"
+#export BT2=""
+export STAR="/usr/local/bin/STAR"
+export SAMTOOLS="/usr/local/bin/samtools"
+export BCFTOOLS="/usr/local/bin/bcftools"
+export TABIX="/usr/local/bin/tabix"
+export PICARD="/home/pfreilly/Downloads/Bioinformatics/Mapping/picard/picard.jar"
+export GATK="/home/pfreilly/Downloads/Bioinformatics/VariantCalling/GATK/GATK-3.4/GenomeAnalysisTK.jar"
+#For GATK4:
+#export GATK="/home/pfreilly/Downloads/Bioinformatics/VariantCalling/GATK/gatk-4.0.2.1/gatk-package-4.0.2.1-local.jar"
 
 #For PSEUDOFASTA, particularly when VCFs are from GATK:
-export BEDTOOLS="[Path to BEDtools]/bedtools"
+export BEDTOOLS="/usr/local/bin/bedtools"
 
 #For heterozygosity and fixed difference rates from pseudoreferences:
-export LPDS="[Path to listPolyDivSites]/listPolyDivSites"
-export NOW="[Path to nonOverlappingWindows]/nonOverlappingWindows"
+export LPDS="/home/pfreilly/Downloads/Bioinformatics/General/RandomScripts/listPolyDivSites"
+export NOW="/home/pfreilly/Downloads/Bioinformatics/General/RandomScripts/nonOverlappingWindows"
 
 #If you aren't going to use the VCFINSNP step, ignore these three lines:
-export SEQTK="[Path to seqtk]/seqtk"
-export ALISAV9="[Path to PseudoreferencePipeline]/insnp_v9_alisa.py"
-export ALISAV8="[Path to PseudoreferencePipeline]/insnp_v8_alisa.py"
+export SEQTK="/usr/local/bin/seqtk"
+export ALISAV9="/home/pfreilly/Downloads/Bioinformatics/VariantCalling/PseudoreferencePipeline/insnp_v9_alisa.py"
+export ALISAV8="/home/pfreilly/Downloads/Bioinformatics/VariantCalling/PseudoreferencePipeline/insnp_v8_alisa.py"
+
+#For PB mapping:
+export NGMLR="/home/pfreilly/.conda/envs/Snifflesenv/bin/ngmlr"
+#export BLASR=""
+#export MM2=""

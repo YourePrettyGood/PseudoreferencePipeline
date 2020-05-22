@@ -22,15 +22,18 @@
 PIPELINEDIR="[Path to the Pseudoreference Pipeline]/PseudoreferencePipeline"
 
 #Possible JOBTYPEs:
-#iADMD = Align reads to a wrapped reference, sort, and mark duplicates
+#MAP = Align reads to a wrapped reference, sort, and mark duplicates
 #STAR = Align RNAseq reads to a wrapped reference, sort, mark duplicates, and
 #       split alignments across introns
-#IR = Realign reads near indels using GATK IndelRealigner -- requisite before HC
+#IR = Realign reads near indels using GATK IndelRealigner -- do this before
+#     HC and MPILEUP
+#IRRNA = Perform indel realignment (a la IR) on BAM derived from STAR
 #HC = Run GATK HaplotypeCaller and perform single-sample GenotypeGVCFs to
 #     output one VCF record per base in the genome
-#VCFINSNP = Filter the VCF, masking bases where depth or other factors are
-#           inadequate, converting homozygous alt calls to the alt base, and
-#           converting heterozygous calls to the degenerate IUPAC base
+#MPILEUP = Run BCFtools to perform single-sample variant calling
+#PSEUDOFASTA = Filter the VCF, masking bases where indicated by filtering
+#              criteria, and updating the reference with genotypes at sites
+#              passing these criteria
 JOBTYPE="HC"
 
 #A tab-separated-value file containing one line per sample you want to run
@@ -43,4 +46,12 @@ METADATA="Example_metadata.tsv"
 #Match this to the value you used for --cpus-per-task:
 NUM_THREADS=8
 
-${PIPELINEDIR}/slurmArrayCall_v2.sh ${JOBTYPE} ${METADATA} ${NUM_THREADS}
+#Special options in case you have particular needs, like:
+#no_HC: Skip HaplotypeCaller and go directly to GenotypeGVCFs
+#no_geno: Skip GenotypeGVCFs
+#mem_#g: Set the maximum memory allowed for Java during GATK calls
+#no_markdup: Use a BAM that hasn't had duplicates marked
+#no_IR: Use a BAM that hasn't been indel-realigned
+SPECIAL=""
+
+${PIPELINEDIR}/localArrayCall_v2.sh ${SLURM_ARRAY_TASK_ID} ${JOBTYPE} ${METADATA} ${NUM_THREADS} ${SPECIAL}

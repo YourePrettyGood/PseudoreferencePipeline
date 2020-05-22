@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J EXAMPLEiADMD
+#SBATCH -J EXAMPLEMAP
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 
@@ -23,16 +23,19 @@
 PIPELINEDIR="[Path to the Pseudoreference Pipeline]/PseudoreferencePipeline"
 
 #Possible JOBTYPEs:
-#iADMD = Align reads to a wrapped reference, sort, and mark duplicates
+#MAP = Align reads to a wrapped reference, sort, and mark duplicates
 #STAR = Align RNAseq reads to a wrapped reference, sort, mark duplicates, and
 #       split alignments across introns
-#IR = Realign reads near indels using GATK IndelRealigner -- requisite before HC
+#IR = Realign reads near indels using GATK IndelRealigner -- do this before
+#     HC and MPILEUP
+#IRRNA = Perform indel realignment (a la IR) on BAM derived from STAR
 #HC = Run GATK HaplotypeCaller and perform single-sample GenotypeGVCFs to
 #     output one VCF record per base in the genome
-#VCFINSNP = Filter the VCF, masking bases where depth or other factors are
-#           inadequate, converting homozygous alt calls to the alt base, and
-#           converting heterozygous calls to the degenerate IUPAC base
-JOBTYPE="iADMD"
+#MPILEUP = Run BCFtools to perform single-sample variant calling
+#PSEUDOFASTA = Filter the VCF, masking bases where indicated by filtering
+#              criteria, and updating the reference with genotypes at sites
+#              passing these criteria
+JOBTYPE="MAP"
 
 #A tab-separated-value file containing one line per sample you want to run
 #The first column is a prefix to use for all intermediate and final files
@@ -44,4 +47,13 @@ METADATA="Example_metadata.tsv"
 #Match this to the value you used for --cpus-per-task:
 NUM_THREADS=8
 
-${PIPELINEDIR}/slurmArrayCall_v2.sh ${JOBTYPE} ${METADATA} ${NUM_THREADS}
+#Special options in case you have particular needs, like:
+#no_markdup: Skip Picard MarkDuplicates
+#mem_#g: Set the maximum memory allowed for Java during Picard MarkDuplicates
+#interleaved: Input FASTQ is interleaved PE data
+#comments: Include parts of FASTQ headers after the first space as comments
+#          in the BAM
+#all_alignments: Output all found alignments (i.e. -a option for BWA-MEM)
+SPECIAL=""
+
+${PIPELINEDIR}/localArrayCall_v2.sh ${SLURM_ARRAY_TASK_ID} ${JOBTYPE} ${METADATA} ${NUM_THREADS} ${SPECIAL}
