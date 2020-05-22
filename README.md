@@ -36,10 +36,12 @@ For DNA-seq mapping (`MAP` task, also `DEPTH` task):
 1. BWA (point to the `bwa` executable)
 1. SAMTOOLS (point to the `samtools` executable)
 1. PICARD (point to the `picard.jar` file)
+
 (Will add BT2, BT2B, and MM2 for `bowtie2`, `bowtie2-build`, and `minimap2` in the future)
 
 For RNA-seq mapping (`STAR` task):
 1. STAR (point to the `STAR` executable)
+
 (Will add HS2 and HS2B for `hisat2` and `hisat2-build` in the future)
 
 For indel realignment and GATK variant calling (both DNA-seq and RNA-seq) (`IR`, `IRRNA`, and `HC` tasks):
@@ -58,6 +60,7 @@ For calculating heterozygosity and fixed difference rates from pseudoreferences 
 
 For PacBio read mapping (`PBMAP` task):
 1. NGMLR (point to the `ngmlr` executable)
+
 (Will add MM2 for `minimap2` in the future)
 
 ## Works in progress
